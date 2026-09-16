@@ -43,6 +43,9 @@ async function initApp() {
 
     // 4. Initialize and start SPA router
     const router = new AppRouter();
+    if (typeof window !== 'undefined') {
+      window.router = router;
+    }
     router.start();
 
     console.log('GLOW UP App ready and mounted.');

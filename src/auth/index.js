@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { setActiveUserId } from '../db/index.js';
 
 export const Result = {
-  ok: (data) => ({ success: true, data, error: null }),
-  err: (error) => ({ success: false, data: null, error })
+  ok: (data) => ({ success: true, data, error: null, code: null }),
+  err: (error, code = null) => ({ success: false, data: null, error, code })
 };
 
 // Safe environment variable resolution (Vite or Node process)
@@ -194,6 +194,7 @@ class AuthServiceCore {
         });
 
         if (!error && data?.user) {
+          const requiresVerification = !data.session;
           // Always mirror registered user in local offline storage so login can always work offline/unconfirmed
           const usersJson = typeof window !== 'undefined' && window.localStorage ? window.localStorage.getItem(LOCAL_USERS_DB_KEY) : null;
           const users = usersJson ? JSON.parse(usersJson) : [];
@@ -208,20 +209,37 @@ class AuthServiceCore {
             });
             if (typeof window !== 'undefined' && window.localStorage) {
               window.localStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(users));
-              window.localStorage.setItem(LOCAL_AUTH_STORAGE_KEY, JSON.stringify(data.user));
+              if (!requiresVerification) {
+                window.localStorage.setItem(LOCAL_AUTH_STORAGE_KEY, JSON.stringify(data.user));
+              }
             }
           }
-          this.currentUser = data.user;
-          if (this.currentUser?.id) setActiveUserId(this.currentUser.id);
-          this.notifyListeners('SIGNED_UP', this.currentUser);
-          return Result.ok(data.user);
+
+          if (!requiresVerification) {
+            this.currentUser = data.user;
+            if (this.currentUser?.id) setActiveUserId(this.currentUser.id);
+            this.notifyListeners('SIGNED_UP', this.currentUser);
+          }
+
+          return Result.ok({
+            user: data.user,
+            requiresVerification,
+            message: requiresVerification
+              ? 'Account created! Please check your email to verify your account before logging in.'
+              : 'Account created successfully!'
+          });
+        }
+
+        const errMsg = error?.message?.toLowerCase() || '';
+        if (errMsg.includes('already registered') || errMsg.includes('already exists') || errMsg.includes('user already exists')) {
+          return Result.err('An account with this email already exists.', 'ALREADY_EXISTS');
         }
 
         const isRateLimitOrNetwork = error && (
           error.status === 429 ||
-          error.message?.toLowerCase().includes('rate limit') ||
-          error.message?.toLowerCase().includes('fetch') ||
-          error.message?.toLowerCase().includes('network')
+          errMsg.includes('rate limit') ||
+          errMsg.includes('fetch') ||
+          errMsg.includes('network')
         );
 
         if (!isRateLimitOrNetwork) {
@@ -240,7 +258,7 @@ class AuthServiceCore {
 
       const existing = users.find(u => u.email === trimmedEmail);
       if (existing) {
-        return Result.err('An account with this email already exists.');
+        return Result.err('An account with this email already exists.', 'ALREADY_EXISTS');
       }
 
       // Generate deterministic or random UUID and hash password
@@ -263,7 +281,7 @@ class AuthServiceCore {
       this.currentUser = newUser;
       if (this.currentUser?.id) setActiveUserId(this.currentUser.id);
       this.notifyListeners('SIGNED_IN', newUser);
-      return Result.ok(newUser);
+      return Result.ok({ user: newUser, requiresVerification: false, message: 'Account created successfully!' });
     } catch (err) {
       return Result.err('Local registration error: ' + err.message);
     }
@@ -294,11 +312,20 @@ class AuthServiceCore {
           return Result.ok(data.user);
         }
 
+        const errMsg = error?.message?.toLowerCase() || '';
+        if (errMsg.includes('email not confirmed') || errMsg.includes('not verified') || errMsg.includes('email_not_confirmed')) {
+          return Result.err('Account not verified. Please check your inbox or click "Resend verification email".', 'EMAIL_NOT_VERIFIED');
+        }
+
+        if (errMsg.includes('invalid login credentials') || errMsg.includes('invalid grant') || errMsg.includes('invalid credentials')) {
+          return Result.err('Invalid email or password.', 'INVALID_CREDENTIALS');
+        }
+
         const isRateLimitOrNetwork = error && (
           error.status === 429 ||
-          error.message?.toLowerCase().includes('rate limit') ||
-          error.message?.toLowerCase().includes('fetch') ||
-          error.message?.toLowerCase().includes('network')
+          errMsg.includes('rate limit') ||
+          errMsg.includes('fetch') ||
+          errMsg.includes('network')
         );
 
         const usersJson = typeof window !== 'undefined' && window.localStorage ? window.localStorage.getItem(LOCAL_USERS_DB_KEY) : null;
@@ -474,6 +501,10 @@ class AuthServiceCore {
       }
     }
     return Result.err('Live Supabase Auth is required for resending OTP.');
+  }
+
+  async resendConfirmationEmail(email) {
+    return this.resendOtp(email, 'signup');
   }
 
   async updateProfile(updates = {}) {

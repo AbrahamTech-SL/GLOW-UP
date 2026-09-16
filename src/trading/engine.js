@@ -1,4 +1,5 @@
 import { db, AchievementService, getActiveUserId, matchesActiveUser, queueSyncMutation } from '../db/index.js';
+import { getLocalDateString } from '../utils/date.js';
 
 export const Result = {
   ok: (data) => ({ success: true, data, error: null }),
@@ -216,7 +217,7 @@ export class TradingEngine {
       return Result.err(`Cannot place trade: Account status is ${account.status}. Only ACTIVE accounts can receive new trades.`);
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const todayTrades = await db.trades
       .where('accountId').equals(account.id)
       .filter(t => t.closeDate && t.closeDate.startsWith(todayStr))
@@ -480,7 +481,7 @@ export class TradingEngine {
   /**
    * Calendar aggregation for an account
    */
-  static async getAccountCalendar(accountId, monthStr = new Date().toISOString().slice(0, 7)) {
+  static async getAccountCalendar(accountId, monthStr = getLocalDateString().slice(0, 7)) {
     const allTrades = await db.trades
       .where('accountId').equals(parseInt(accountId, 10))
       .toArray();

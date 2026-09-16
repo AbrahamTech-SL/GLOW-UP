@@ -14,6 +14,20 @@ import {
 import { TradingEngine } from '../trading/engine.js';
 import { AuthService } from '../auth/index.js';
 import { SyncEngine } from '../sync/index.js';
+import {
+  getLocalDateString,
+  getLocalWeekdayName,
+  getLocalWeekdayShort,
+  getLocalMonthName,
+  formatHeaderDate,
+  formatFullDate,
+  getLocalTimeFormatted,
+  getCurrentWeek,
+  getMonthCalendarGrid,
+  parseLocalDate,
+  isToday,
+  isSameDay
+} from '../utils/date.js';
 
 // UI Performance Helpers
 export function debounce(fn, delay = 180) {
@@ -213,6 +227,165 @@ export class AppRouter {
     };
   }
 
+  showVerificationModal(email) {
+    this.showModal({
+      title: 'Verify Your Email',
+      bodyHtml: `
+        <div class="flex flex-col gap-3 py-1">
+          <div class="flex items-center gap-3 p-3.5 bg-primary-container/30 rounded-xl">
+            <span class="material-symbols-outlined text-primary text-[24px]">mark_email_unread</span>
+            <div class="flex flex-col">
+              <span class="font-label-md font-semibold text-on-surface">Confirmation Required</span>
+              <span class="font-body-sm text-on-surface-variant">Your Supabase account requires email verification before signing in.</span>
+            </div>
+          </div>
+          <p class="font-body-md text-on-surface">Please check your inbox at <strong class="text-primary">${email}</strong> and click the confirmation link.</p>
+          <p class="font-body-sm text-outline">Didn't receive the email? Click below to send a fresh confirmation link.</p>
+        </div>
+      `,
+      confirmText: 'Resend Confirmation Email',
+      onConfirm: async () => {
+        this.showToast('Sending confirmation email...');
+        const res = await AuthService.resendConfirmationEmail(email);
+        if (res.success) {
+          this.showToast('Confirmation email resent! Please check your inbox.');
+          return true;
+        } else {
+          this.showToast(res.error || 'Failed to resend confirmation email');
+          return false;
+        }
+      }
+    });
+  }
+
+  openDailyCalendarModal(currentSelectedDate, onSelectDate) {
+    const existing = document.getElementById('glow-modal');
+    if (existing) existing.remove();
+
+    const parsed = parseLocalDate(currentSelectedDate || getLocalDateString());
+    let viewYear = parsed.year;
+    let viewMonth = parsed.month; // 1-12
+
+    const modal = document.createElement('div');
+    modal.id = 'glow-modal';
+    modal.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 transition-all duration-200';
+
+    const renderCalendar = () => {
+      const grid = getMonthCalendarGrid(viewYear, viewMonth);
+      const monthName = getLocalMonthName(viewMonth);
+
+      modal.innerHTML = `
+        <div class="w-full max-w-sm bg-surface-container-lowest rounded-2xl p-5 shadow-2xl border border-outline-variant/30 flex flex-col gap-4">
+          <!-- Calendar Header -->
+          <div class="flex items-center justify-between pb-2 border-b border-surface-variant">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-[22px]">calendar_month</span>
+              <h3 class="font-headline-sm text-on-surface font-bold">${monthName} ${viewYear}</h3>
+            </div>
+            <div class="flex items-center gap-1">
+              <button id="cal-prev-btn" class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors" type="button" aria-label="Previous Month">
+                <span class="material-symbols-outlined text-[18px]">chevron_left</span>
+              </button>
+              <button id="cal-next-btn" class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors" type="button" aria-label="Next Month">
+                <span class="material-symbols-outlined text-[18px]">chevron_right</span>
+              </button>
+              <button id="cal-close-btn" class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface ml-1" type="button" aria-label="Close">
+                <span class="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Weekday Headers -->
+          <div class="grid grid-cols-7 text-center font-label-sm text-label-sm font-semibold text-outline py-1">
+            <span>Su</span>
+            <span>Mo</span>
+            <span>Tu</span>
+            <span>We</span>
+            <span>Th</span>
+            <span>Fr</span>
+            <span>Sa</span>
+          </div>
+
+          <!-- Calendar Matrix -->
+          <div class="grid grid-cols-7 gap-1 place-items-center">
+            ${grid.map(cell => {
+              const isSelected = cell.dateStr === currentSelectedDate;
+              const isCurrDay = cell.isToday;
+              let cls = 'w-9 h-9 rounded-full flex flex-col items-center justify-center font-body-sm text-body-sm transition-all duration-150 relative ';
+
+              if (isSelected) {
+                cls += 'bg-primary-container text-on-primary-fixed font-bold shadow-sm ring-2 ring-primary scale-105';
+              } else if (isCurrDay) {
+                cls += 'bg-inverse-surface text-inverse-on-surface font-bold ring-2 ring-primary-container';
+              } else if (!cell.isCurrentMonth) {
+                cls += 'text-outline/40 hover:bg-surface-container-low';
+              } else {
+                cls += 'text-on-surface hover:bg-surface-container active:scale-95';
+              }
+
+              return `
+                <button type="button" class="${cls}" data-cal-date="${cell.dateStr}">
+                  <span>${cell.day}</span>
+                  ${isCurrDay && !isSelected ? '<span class="w-1 h-1 rounded-full bg-primary-container absolute bottom-1"></span>' : ''}
+                </button>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- Quick Today & Actions -->
+          <div class="flex items-center justify-between pt-2 border-t border-surface-variant">
+            <button id="cal-jump-today-btn" type="button" class="px-3.5 py-1.5 rounded-full bg-primary-container/40 text-on-primary-container hover:bg-primary-container font-label-sm font-semibold transition-colors flex items-center gap-1">
+              <span class="material-symbols-outlined text-[16px]">today</span>
+              <span>Jump to Today</span>
+            </button>
+            <button id="cal-cancel-btn" type="button" class="px-4 py-1.5 rounded-full bg-surface-container text-on-surface font-label-sm font-semibold hover:bg-surface-container-high transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      `;
+
+      const close = () => modal.remove();
+      modal.querySelector('#cal-close-btn').onclick = close;
+      modal.querySelector('#cal-cancel-btn').onclick = close;
+      modal.onclick = (e) => { if (e.target === modal) close(); };
+
+      modal.querySelector('#cal-prev-btn').onclick = () => {
+        viewMonth--;
+        if (viewMonth < 1) {
+          viewMonth = 12;
+          viewYear--;
+        }
+        renderCalendar();
+      };
+
+      modal.querySelector('#cal-next-btn').onclick = () => {
+        viewMonth++;
+        if (viewMonth > 12) {
+          viewMonth = 1;
+          viewYear++;
+        }
+        renderCalendar();
+      };
+
+      modal.querySelector('#cal-jump-today-btn').onclick = () => {
+        close();
+        onSelectDate(getLocalDateString());
+      };
+
+      modal.querySelectorAll('[data-cal-date]').forEach(btn => {
+        btn.onclick = () => {
+          const pickedDate = btn.getAttribute('data-cal-date');
+          close();
+          onSelectDate(pickedDate);
+        };
+      });
+    };
+
+    document.body.appendChild(modal);
+    renderCalendar();
+  }
+
   initMenuEvents() {
     if (this.closeMenuBtn) {
       this.closeMenuBtn.addEventListener('click', () => {
@@ -320,16 +493,17 @@ export class AppRouter {
         e.preventDefault();
         const path = link.getAttribute('data-path') || '';
         const href = link.getAttribute('href') || '';
+        const label = link.innerText?.trim() || '';
 
-        if (path === 'home' || href.includes('home')) {
+        if (path === 'home' || href.includes('home') || label === 'Home') {
           this.navigate('home');
-        } else if (path === 'daily' || href.includes('daily')) {
+        } else if (path === 'daily' || href.includes('daily') || label === 'Daily') {
           this.navigate('daily');
-        } else if (path === 'quick-add' || href.includes('quick-add') || link.getAttribute('aria-label') === 'Quick Add') {
+        } else if (path === 'quick-add' || path === 'create-goal' || href.includes('quick-add') || link.getAttribute('aria-label') === 'Quick Add') {
           this.navigate('quick-add');
-        } else if (path === 'progress' || href.includes('progress')) {
+        } else if (path === 'progress' || path === 'goals-dashboard' || href.includes('progress') || href.includes('goals-dashboard') || label.includes('Progress')) {
           this.navigate('progress');
-        } else if (path === 'menu' || path === 'habits' || href.includes('menu') || link.querySelector('span')?.textContent?.includes('widgets')) {
+        } else if (path === 'menu' || path === 'habits' || href.includes('menu') || link.querySelector('span')?.textContent?.includes('widgets') || label.includes('Menu')) {
           this.openMenu();
         }
       });
@@ -363,6 +537,39 @@ export class AppRouter {
       // Settings or Profile avatar
       if (el.querySelector('img[alt*="Profile"]') || el.getAttribute('aria-label') === 'Profile') {
         el.addEventListener('click', () => this.navigate('profile'));
+      }
+
+      // Details buttons
+      if (text === 'Details' || (text.includes('Details') && !el.closest('header'))) {
+        const card = el.closest('[data-context], section, article, div.relative');
+        const cardText = card?.innerText?.toLowerCase() || '';
+        el.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (cardText.includes('habit') || cardText.includes('streak') || cardText.includes('high')) {
+            this.navigate('habit-stats');
+          } else if (cardText.includes('goal')) {
+            this.navigate('goal-stats');
+          } else if (cardText.includes('money') || cardText.includes('budget') || cardText.includes('balance')) {
+            this.navigate('financial-stats');
+          } else if (cardText.includes('trade') || cardText.includes('trading') || cardText.includes('drawdown')) {
+            this.navigate('trading-stats');
+          } else {
+            this.navigate('personal-stats');
+          }
+        };
+      }
+
+      // Search icons
+      if (el.getAttribute('aria-label') === 'Search' || (el.querySelector('.material-symbols-outlined')?.innerText === 'search' && !el.closest('form, .relative.w-full.h-[54px]'))) {
+        el.onclick = (e) => {
+          e.preventDefault();
+          const searchInput = this.appContainer.querySelector('input[type="search"], input[type="text"][placeholder*="Search"], #journalSearch, #tx-search-input, #trade-search-input');
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        };
       }
     });
   }
@@ -637,6 +844,10 @@ export class AppRouter {
       try {
         const res = await AuthService.signIn(email, password);
         if (!res.success) {
+          if (res.code === 'EMAIL_NOT_VERIFIED' || res.error?.toLowerCase().includes('not verified') || res.error?.toLowerCase().includes('not confirmed') || res.error?.toLowerCase().includes('email not confirmed')) {
+            this.showVerificationModal(email);
+            return;
+          }
           this.showToast(res.error || 'Login failed');
           return;
         }
@@ -819,6 +1030,13 @@ export class AppRouter {
           return;
         }
 
+        if (res.data?.requiresVerification) {
+          this.showToast('Account created! Please verify your email before logging in.', 6000);
+          this.showVerificationModal(email);
+          this.navigate('login');
+          return;
+        }
+
         const user = res.data?.user || res.data;
         if (user?.id) {
           setActiveUserId(user.id);
@@ -924,9 +1142,9 @@ export class AppRouter {
   }
 
   async hydrateHome() {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const [habits, goals, todayJournal, finStats, streak] = await Promise.all([
-      HabitService.getAll(false),
+      HabitService.getAll(false, true),
       GoalService.getAll(),
       JournalService.getToday(todayStr),
       MoneyService.getFinancialStats(),
@@ -1000,7 +1218,77 @@ export class AppRouter {
       }
     }
 
-    // 4. Update Header Task Count
+    // 4. Update Dynamic Weekly Flow (starts 100% UNCHECKED unless real completions exist)
+    const weeklyFlowSection = Array.from(this.appContainer.querySelectorAll('div')).find(d => {
+      const text = d.innerText || '';
+      return text.includes('Weekly Flow');
+    });
+
+    if (weeklyFlowSection) {
+      const { days } = getCurrentWeek();
+      const weeklyEntries = await Promise.all(
+        days.map(d => db.habitEntries.where('date').equals(d.dateStr).toArray())
+      );
+
+      const dayCompletions = days.map((day, idx) => {
+        const completedList = (weeklyEntries[idx] || []).filter(e => matchesActiveUser(e) && e.completed);
+        return {
+          ...day,
+          hasCompleted: completedList.length > 0
+        };
+      });
+
+      const totalCompletedDays = dayCompletions.filter(d => d.hasCompleted).length;
+      const weeklyBadge = weeklyFlowSection.querySelector('.font-label-sm.text-primary, span.font-bold');
+      if (weeklyBadge) {
+        weeklyBadge.innerText = `${totalCompletedDays} of 7 Completed`;
+      }
+
+      const pillGrid = weeklyFlowSection.querySelector('.grid.grid-cols-7');
+      if (pillGrid) {
+        pillGrid.innerHTML = dayCompletions.map(d => {
+          const isCurrDay = isToday(d.dateStr);
+          if (d.hasCompleted) {
+            return `
+              <div class="flex flex-col items-center gap-1.5 cursor-pointer group" data-weekly-date="${d.dateStr}">
+                <span class="font-label-sm text-label-sm ${isCurrDay ? 'font-bold text-on-surface' : 'text-on-surface-variant'}">${d.weekdayShort}</span>
+                <div class="w-9 h-11 rounded-full bg-primary-container flex items-center justify-center text-on-primary-fixed shadow-xs hover:scale-105 transition-transform">
+                  <span class="material-symbols-outlined text-[18px] font-bold">check</span>
+                </div>
+              </div>
+            `;
+          } else if (isCurrDay) {
+            return `
+              <div class="flex flex-col items-center gap-1.5 cursor-pointer group" data-weekly-date="${d.dateStr}">
+                <span class="font-label-sm text-label-sm font-bold text-on-surface">${d.weekdayShort}</span>
+                <div class="w-9 h-11 rounded-full bg-inverse-surface flex items-center justify-center text-inverse-on-surface shadow-md ring-2 ring-primary-container hover:scale-105 transition-transform">
+                  <span class="w-2 h-2 rounded-full bg-secondary-container animate-ping"></span>
+                </div>
+              </div>
+            `;
+          } else {
+            return `
+              <div class="flex flex-col items-center gap-1.5 cursor-pointer group" data-weekly-date="${d.dateStr}">
+                <span class="font-label-sm text-label-sm text-outline">${d.weekdayShort}</span>
+                <div class="w-9 h-11 rounded-full bg-surface-container flex items-center justify-center text-outline hover:bg-surface-container-high transition-colors">
+                  <span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+                </div>
+              </div>
+            `;
+          }
+        }).join('');
+
+        pillGrid.querySelectorAll('[data-weekly-date]').forEach(pill => {
+          pill.onclick = (e) => {
+            e.preventDefault();
+            this.selectedDailyDate = pill.getAttribute('data-weekly-date');
+            this.navigate('daily');
+          };
+        });
+      }
+    }
+
+    // 5. Update Header Task Count
     const taskCountEl = this.appContainer.querySelector('h3.font-headline-sm + span');
     if (taskCountEl) {
       taskCountEl.innerText = `${dailyStats.completed} / ${dailyStats.total} done`;
@@ -1116,20 +1404,39 @@ export class AppRouter {
   }
 
   async hydrateDaily() {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const habits = await HabitService.getAll(false);
-    const dailyStats = await HabitService.getDailyCompletionStats(todayStr);
+    const selectedDate = this.selectedDailyDate || getLocalDateString();
+    this.selectedDailyDate = selectedDate;
+
+    const habits = await HabitService.getAll(false, true);
+    const dailyStats = await HabitService.getDailyCompletionStats(selectedDate, habits);
     const goals = await GoalService.getAll();
     const activeGoals = goals.filter(g => g.status === 'ACTIVE');
-    const todayJournal = await JournalService.getToday(todayStr);
+    const todayJournal = await JournalService.getToday(selectedDate);
 
-    // 1. Dynamic Local Date Header
+    // 1. Dynamic Local Date Header & Day Title
     const dateLabel = this.appContainer.querySelector('span.font-label-md.text-on-surface-variant');
     if (dateLabel) {
-      dateLabel.innerText = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      dateLabel.innerText = formatHeaderDate(selectedDate);
+    }
+    const dayTitleEl = this.appContainer.querySelector('h1.font-headline-lg-mobile');
+    if (dayTitleEl) {
+      dayTitleEl.innerText = isToday(selectedDate) ? 'Today' : getLocalWeekdayName(selectedDate);
     }
 
-    // 2. Progress Ring & Completion Stats
+    // 2. Interactive Calendar Drawer / Modal Button
+    const calBtn = this.appContainer.querySelector('button[aria-label="Toggle calendar view"], button[aria-label*="calendar"]');
+    if (calBtn) {
+      calBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openDailyCalendarModal(this.selectedDailyDate, async (pickedDate) => {
+          this.selectedDailyDate = pickedDate;
+          await this.hydrateDaily();
+        });
+      };
+    }
+
+    // 3. Progress Ring & Completion Stats
     const percentEl = this.appContainer.querySelector('#completion-percent');
     if (percentEl) percentEl.innerText = `${dailyStats.percentage}%`;
 
@@ -1144,7 +1451,7 @@ export class AppRouter {
       dailyCircle.style.strokeDashoffset = `${offset}`;
     }
 
-    // 3. Dynamic Habits List on Daily
+    // 4. Dynamic Habits List on Daily
     const habitListContainer = this.appContainer.querySelector('#habit-list');
     if (habitListContainer) {
       if (habits.length === 0) {
@@ -1161,13 +1468,13 @@ export class AppRouter {
         const addBtn = habitListContainer.querySelector('#daily-add-btn');
         if (addBtn) addBtn.onclick = () => this.navigate('habits');
       } else {
-        const entries = await db.habitEntries.where('date').equals(todayStr).toArray();
-        const entryMap = new Map(entries.map(e => [e.habitId, e.completed]));
+        const entries = await db.habitEntries.where('date').equals(selectedDate).toArray();
+        const entryMap = new Map(entries.filter(e => matchesActiveUser(e)).map(e => [e.habitId, e.completed]));
 
         habitListContainer.innerHTML = habits.map(h => {
           const isCompleted = !!entryMap.get(h.id);
           return `
-            <div class="habit-card bg-surface-container-lowest rounded-lg p-3.5 shadow-sm flex items-center justify-between transition-all cursor-pointer" data-habit-id="${h.id}">
+            <div class="habit-card bg-surface-container-lowest rounded-lg p-3.5 shadow-sm flex items-center justify-between transition-all cursor-pointer hover:shadow" data-habit-id="${h.id}" data-completed="${isCompleted}">
               <div class="flex items-center gap-3.5 min-w-0 flex-grow pr-2">
                 <div class="w-11 h-11 rounded-full ${isCompleted ? 'bg-primary-container/40 text-on-primary-container' : 'bg-surface-container-low text-on-surface-variant'} flex items-center justify-center text-[20px] shrink-0">
                   <span class="material-symbols-outlined text-[20px]">${h.icon || 'checklist'}</span>
@@ -1177,6 +1484,7 @@ export class AppRouter {
                   <div class="flex items-center gap-1 font-body-sm text-body-sm text-on-surface-variant">
                     <span>🔥</span>
                     <span class="font-medium text-tertiary">${h.currentStreak || 0} day streak</span>
+                    <span class="text-outline text-xs">• ${h.category || 'Daily'}</span>
                   </div>
                 </div>
               </div>
@@ -1192,20 +1500,42 @@ export class AppRouter {
           const habit = habits.find(h => h.id === hid);
           if (!habit) return;
 
-          const toggleBtn = card.querySelector('.habit-toggle');
           const toggleAction = async (e) => {
-            e.stopPropagation();
-            const next = await HabitService.toggleCompletion(habit.id, todayStr);
-            await this.hydrateDaily();
+            if (e) e.preventDefault();
+            const next = await HabitService.toggleCompletion(habit.id, selectedDate);
+            card.setAttribute('data-completed', String(next));
+
+            const iconWrap = card.querySelector('.w-11.h-11');
+            const titleH3 = card.querySelector('h3.font-label-lg');
+            const toggleBtn = card.querySelector('.habit-toggle');
+            const checkIcon = toggleBtn?.querySelector('.material-symbols-outlined');
+
+            if (next) {
+              if (toggleBtn) toggleBtn.className = 'habit-toggle w-9 h-9 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0 active:scale-90 transition-transform';
+              if (checkIcon) checkIcon.classList.remove('opacity-0');
+              if (iconWrap) iconWrap.className = 'w-11 h-11 rounded-full bg-primary-container/40 text-on-primary-container flex items-center justify-center text-[20px] shrink-0';
+              if (titleH3) titleH3.classList.add('line-through', 'opacity-70');
+            } else {
+              if (toggleBtn) toggleBtn.className = 'habit-toggle w-9 h-9 rounded-full bg-surface-container text-outline hover:bg-primary-container/40 flex items-center justify-center shrink-0 active:scale-90 transition-transform';
+              if (checkIcon) checkIcon.classList.add('opacity-0');
+              if (iconWrap) iconWrap.className = 'w-11 h-11 rounded-full bg-surface-container-low text-on-surface-variant flex items-center justify-center text-[20px] shrink-0';
+              if (titleH3) titleH3.classList.remove('line-through', 'opacity-70');
+            }
+
+            const updatedStats = await HabitService.getDailyCompletionStats(selectedDate, habits);
+            if (percentEl) percentEl.innerText = `${updatedStats.percentage}%`;
+            if (statsEl) {
+              statsEl.innerHTML = `<span class="material-symbols-outlined text-[16px] text-primary">check_circle</span> <span class="font-semibold text-on-surface">${updatedStats.completed} of ${updatedStats.total}</span> habits done`;
+            }
+            if (dailyCircle) {
+              const offset = 251.2 - (251.2 * (updatedStats.percentage / 100));
+              dailyCircle.style.strokeDashoffset = `${offset}`;
+            }
+
             this.showToast(next ? `Completed: ${habit.name}` : `Unchecked: ${habit.name}`);
           };
 
-          if (toggleBtn) toggleBtn.onclick = toggleAction;
-          card.onclick = (e) => {
-            if (e.target.closest('.habit-toggle')) return;
-            this.selectedHabitId = habit.id;
-            this.navigate('habit-detail');
-          };
+          card.onclick = toggleAction;
         });
       }
     }
@@ -1307,8 +1637,8 @@ export class AppRouter {
   }
 
   async hydrateHabits() {
-    const habits = await HabitService.getAll(false);
-    const todayStr = new Date().toISOString().split('T')[0];
+    const habits = await HabitService.getAll(false, true);
+    const todayStr = getLocalDateString();
 
     // 1. Add Habit CTA
     const addBtn = Array.from(this.appContainer.querySelectorAll('button, a')).find(b => b.innerText.includes('Add') || b.getAttribute('aria-label') === 'Add Habit');
@@ -1532,162 +1862,158 @@ export class AppRouter {
   }
 
   async hydrateJournal() {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const entry = await JournalService.getToday(todayStr);
-    let selectedMood = entry?.mood || 'focused';
+    let selectedMood = entry?.mood || 'great';
+    let selectedReflection = entry?.reflection || '';
 
-    // --- Inject dynamic journal editor into the main content area ---
-    const main = this.appContainer.querySelector('main') || this.appContainer;
-    const existingForm = main.querySelector('form, .journal-form, section');
-
-    // Build the dynamic editor form
-    const moods = ['focused', 'energized', 'calm', 'grateful', 'reflective', 'tired', 'stressed'];
-    const editorHtml = `
-      <div class="journal-editor flex flex-col gap-5 px-4 py-3">
-        <!-- Date Header -->
-        <div class="flex items-center justify-between">
-          <p class="font-label-lg font-bold text-on-surface">${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}</p>
-          <button id="journal-history-btn" class="flex items-center gap-1 text-primary font-label-md font-semibold">
-            <span class="material-symbols-outlined text-[18px]">history</span>History
-          </button>
-        </div>
-
-        <!-- Mood Selector -->
-        <div class="flex flex-col gap-2">
-          <p class="font-label-md font-semibold text-on-surface-variant">How are you feeling?</p>
-          <div class="flex flex-wrap gap-2" id="mood-selector">
-            ${moods.map(m => `
-              <button data-mood="${m}" class="mood-pill px-3 py-1.5 rounded-full font-label-sm font-medium transition-all ${m === selectedMood ? 'bg-primary-container text-on-primary-container shadow-sm' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'}">${m.charAt(0).toUpperCase() + m.slice(1)}</button>
-            `).join('')}
-          </div>
-        </div>
-
-        <!-- Gratitude -->
-        <div class="flex flex-col gap-1.5">
-          <label for="gratitude-input" class="font-label-md font-semibold text-on-surface-variant flex items-center gap-1.5">
-            <span class="material-symbols-outlined text-[18px] text-secondary">favorite</span>Gratitude
-          </label>
-          <textarea id="gratitude-input" rows="3" placeholder="What are you grateful for today?" class="w-full p-3 rounded-xl bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-body-md resize-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">${entry?.gratitude || ''}</textarea>
-        </div>
-
-        <!-- Wins -->
-        <div class="flex flex-col gap-1.5">
-          <label for="wins-input" class="font-label-md font-semibold text-on-surface-variant flex items-center gap-1.5">
-            <span class="material-symbols-outlined text-[18px] text-secondary">emoji_events</span>Daily Wins
-          </label>
-          <textarea id="wins-input" rows="3" placeholder="What went well today? What did you accomplish?" class="w-full p-3 rounded-xl bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-body-md resize-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">${entry?.wins || ''}</textarea>
-        </div>
-
-        <!-- Improvements -->
-        <div class="flex flex-col gap-1.5">
-          <label for="improve-input" class="font-label-md font-semibold text-on-surface-variant flex items-center gap-1.5">
-            <span class="material-symbols-outlined text-[18px] text-secondary">trending_up</span>Areas to Improve
-          </label>
-          <textarea id="improve-input" rows="3" placeholder="What could you do better? What will you change?" class="w-full p-3 rounded-xl bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-body-md resize-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">${entry?.improvements || ''}</textarea>
-        </div>
-
-        <!-- Free Notes -->
-        <div class="flex flex-col gap-1.5">
-          <label for="notes-input" class="font-label-md font-semibold text-on-surface-variant flex items-center gap-1.5">
-            <span class="material-symbols-outlined text-[18px] text-secondary">edit_note</span>Notes & Reflections
-          </label>
-          <textarea id="notes-input" rows="4" placeholder="Free-form thoughts, reflections, ideas..." class="w-full p-3 rounded-xl bg-surface-container-lowest border border-outline-variant/30 text-on-surface font-body-md resize-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">${entry?.notes || ''}</textarea>
-        </div>
-
-        <!-- Action Buttons -->
-        <div class="flex items-center gap-3 pt-2 pb-4">
-          <button id="journal-draft-btn" class="flex-1 px-4 py-3 rounded-full bg-surface-container text-on-surface font-label-md font-semibold hover:bg-surface-container-high transition-colors">
-            Save Draft
-          </button>
-          <button id="journal-save-btn" class="flex-1 px-4 py-3 rounded-full bg-primary-container text-on-primary-fixed font-label-md font-bold hover:bg-secondary-fixed active:scale-95 transition-all shadow-sm">
-            Complete Journal
-          </button>
-        </div>
-        ${entry ? `
-        <button id="journal-delete-btn" class="w-full px-4 py-2.5 rounded-full bg-error-container text-on-error-container font-label-md font-semibold hover:opacity-90 transition-colors">
-          Delete Today's Entry
-        </button>` : ''}
-      </div>
-    `;
-
-    // Replace existing content area (preserve header and nav)
-    if (existingForm) {
-      existingForm.innerHTML = editorHtml;
-    } else {
-      const sections = main.querySelectorAll('section, .content');
-      if (sections.length > 0) {
-        sections.forEach(s => s.remove());
+    // 1. Dynamic Local Date in Context Bar
+    const dateElements = this.appContainer.querySelectorAll('p, span, h2, h3');
+    dateElements.forEach(el => {
+      const text = el.innerText || '';
+      if (text.includes('Thursday, Oct 24') || text.includes('Oct 24')) {
+        el.innerText = formatHeaderDate(todayStr);
       }
-      main.insertAdjacentHTML('beforeend', editorHtml);
+    });
+
+    // Header Back & Search buttons
+    const backBtn = this.appContainer.querySelector('header a[aria-label="Back"], header button[aria-label="Back"]');
+    if (backBtn) {
+      backBtn.onclick = (e) => {
+        e.preventDefault();
+        history.back();
+      };
     }
 
-    // --- Wire Mood Selector ---
-    this.appContainer.querySelectorAll('#mood-selector .mood-pill').forEach(btn => {
+    const searchBtn = this.appContainer.querySelector('header button[aria-label="Search"]');
+    if (searchBtn) {
+      searchBtn.onclick = () => this.navigate('journal-history');
+    }
+
+    // 2. Interactive Mood Selector Chips
+    const moodBtns = this.appContainer.querySelectorAll('#mood-selector .mood-btn');
+    const updateMoodUI = () => {
+      moodBtns.forEach(btn => {
+        const mood = btn.getAttribute('data-mood');
+        const isActive = mood === selectedMood;
+        if (isActive) {
+          btn.className = 'mood-btn flex flex-col items-center justify-center py-3 px-1 rounded-2xl bg-surface-container-lowest text-on-surface shadow-md ring-2 ring-primary scale-105 transition-all active:scale-95 cursor-pointer';
+        } else {
+          btn.className = 'mood-btn flex flex-col items-center justify-center py-3 px-1 rounded-2xl bg-surface-container-lowest/70 text-on-surface-variant transition-all hover:bg-surface-container-lowest active:scale-95 cursor-pointer';
+        }
+      });
+    };
+    updateMoodUI();
+
+    moodBtns.forEach(btn => {
       btn.onclick = (e) => {
         e.preventDefault();
-        selectedMood = btn.getAttribute('data-mood');
-        this.appContainer.querySelectorAll('#mood-selector .mood-pill').forEach(p => {
-          p.classList.remove('bg-primary-container', 'text-on-primary-container', 'shadow-sm');
-          p.classList.add('bg-surface-container', 'text-on-surface-variant');
-        });
-        btn.classList.add('bg-primary-container', 'text-on-primary-container', 'shadow-sm');
-        btn.classList.remove('bg-surface-container', 'text-on-surface-variant');
-        this.showToast(`Mood: ${selectedMood}`);
+        selectedMood = btn.getAttribute('data-mood') || 'great';
+        updateMoodUI();
       };
     });
 
-    // --- Wire History Button ---
-    const historyBtn = this.appContainer.querySelector('#journal-history-btn');
-    if (historyBtn) historyBtn.onclick = () => this.navigate('journal-history');
-
-    // --- Gather text inputs ---
-    const getFields = () => ({
-      gratitude: this.appContainer.querySelector('#gratitude-input')?.value?.trim() || '',
-      wins: this.appContainer.querySelector('#wins-input')?.value?.trim() || '',
-      improvements: this.appContainer.querySelector('#improve-input')?.value?.trim() || '',
-      notes: this.appContainer.querySelector('#notes-input')?.value?.trim() || ''
+    // 3. Interactive Reflection Cards ("Mindful Morning", "Peaceful Space")
+    const reflectionCards = Array.from(this.appContainer.querySelectorAll('.grid.grid-cols-2 > div')).filter(div => {
+      const t = div.innerText || '';
+      return t.includes('Mindful Morning') || t.includes('Peaceful Space');
     });
 
-    // --- Wire Draft Button ---
-    const draftBtn = this.appContainer.querySelector('#journal-draft-btn');
-    if (draftBtn) {
-      draftBtn.onclick = async (e) => {
+    const updateReflectionUI = () => {
+      reflectionCards.forEach(card => {
+        const text = card.innerText?.trim() || '';
+        const isMindful = text.includes('Mindful Morning');
+        const cardRefName = isMindful ? 'Mindful Morning' : 'Peaceful Space';
+        const isSelected = selectedReflection === cardRefName;
+
+        card.classList.add('cursor-pointer', 'transition-all', 'duration-200');
+        const existingBadge = card.querySelector('.reflection-check-badge');
+        if (existingBadge) existingBadge.remove();
+
+        if (isSelected) {
+          card.className = 'relative h-28 rounded-[20px] overflow-hidden bg-surface-container-high shadow-lg ring-4 ring-primary ring-offset-2 ring-offset-surface scale-[0.98] cursor-pointer transition-all duration-200';
+          const badge = document.createElement('div');
+          badge.className = 'reflection-check-badge absolute top-2 right-2 w-6 h-6 rounded-full bg-primary flex items-center justify-center text-on-primary shadow-xs z-10';
+          badge.innerHTML = '<span class="material-symbols-outlined text-[16px] font-bold">check</span>';
+          card.appendChild(badge);
+        } else {
+          card.className = 'relative h-28 rounded-[20px] overflow-hidden bg-surface-container-high shadow-sm hover:shadow-md cursor-pointer transition-all duration-200';
+        }
+      });
+    };
+    updateReflectionUI();
+
+    reflectionCards.forEach(card => {
+      card.onclick = (e) => {
         e.preventDefault();
-        const fields = getFields();
-        await JournalService.save({ date: todayStr, mood: selectedMood, ...fields, status: 'draft' });
-        this.showToast('Draft saved');
+        const text = card.innerText?.trim() || '';
+        const cardRefName = text.includes('Mindful Morning') ? 'Mindful Morning' : 'Peaceful Space';
+        if (selectedReflection === cardRefName) {
+          selectedReflection = '';
+        } else {
+          selectedReflection = cardRefName;
+        }
+        updateReflectionUI();
       };
+    });
+
+    // 4. Prepopulate Text Inputs
+    const gratitudeInput = this.appContainer.querySelector('#gratitude-input');
+    const winsInput = this.appContainer.querySelector('#wins-input');
+    const improveInput = this.appContainer.querySelector('#improve-input');
+    const notesInput = this.appContainer.querySelector('#notes-input');
+
+    if (entry) {
+      if (gratitudeInput && entry.gratitude) gratitudeInput.value = entry.gratitude;
+      if (winsInput && entry.wins) winsInput.value = entry.wins;
+      if (improveInput && entry.improvements) improveInput.value = entry.improvements;
+      if (notesInput && entry.notes) notesInput.value = entry.notes;
+      if (entry.reflection) {
+        selectedReflection = entry.reflection;
+        updateReflectionUI();
+      }
     }
 
-    // --- Wire Complete Button ---
-    const saveBtn = this.appContainer.querySelector('#journal-save-btn');
+    const getFields = () => ({
+      gratitude: gratitudeInput?.value?.trim() || '',
+      wins: winsInput?.value?.trim() || '',
+      improvements: improveInput?.value?.trim() || '',
+      notes: notesInput?.value?.trim() || ''
+    });
+
+    // 5. Save Button
+    const saveBtn = this.appContainer.querySelector('#save-btn') ||
+      Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.includes('Save Journal'));
     if (saveBtn) {
       saveBtn.onclick = async (e) => {
         e.preventDefault();
         const fields = getFields();
-        if (!fields.gratitude && !fields.wins && !fields.improvements && !fields.notes) {
-          this.showToast('Write something before saving');
-          return;
-        }
-        await JournalService.save({ date: todayStr, mood: selectedMood, ...fields, status: 'completed' });
-        this.showToast('Journal completed & saved!');
-        setTimeout(() => this.navigate('journal-history'), 400);
+        await JournalService.save({
+          date: todayStr,
+          mood: selectedMood,
+          reflection: selectedReflection,
+          ...fields,
+          status: 'completed'
+        });
+        this.showToast('Journal reflection saved!');
+        setTimeout(() => this.navigate('journal-history'), 300);
       };
     }
 
-    // --- Wire Delete Button ---
-    const deleteBtn = this.appContainer.querySelector('#journal-delete-btn');
-    if (deleteBtn && entry) {
-      deleteBtn.onclick = async () => {
-        this.showConfirm({
-          title: 'Delete Entry',
-          message: `Delete today's journal entry?`,
-          onConfirm: async () => {
-            await JournalService.delete(entry.id);
-            this.showToast('Entry deleted');
-            await this.handleRoute();
-          }
+    // 6. Save as Draft Button
+    const draftBtn = Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.includes('Save as draft') || b.innerText.includes('draft'));
+    if (draftBtn && draftBtn !== saveBtn) {
+      draftBtn.onclick = async (e) => {
+        e.preventDefault();
+        const fields = getFields();
+        await JournalService.save({
+          date: todayStr,
+          mood: selectedMood,
+          reflection: selectedReflection,
+          ...fields,
+          status: 'draft'
         });
+        this.showToast('Draft saved!');
       };
     }
   }
@@ -1695,137 +2021,217 @@ export class AppRouter {
   async hydrateJournalHistory() {
     const entries = await JournalService.getAll();
 
-    // --- Find or create the dynamic list container ---
-    const main = this.appContainer.querySelector('main') || this.appContainer;
-    let listContainer = main.querySelector('#journal-history-list, .journal-list, section:nth-of-type(2)');
-    if (!listContainer) {
-      listContainer = main.querySelector('section') || main;
+    // 1. Search Bar & Filter Chips
+    const searchInput = this.appContainer.querySelector('#journalSearch');
+    const filterChips = this.appContainer.querySelectorAll('.filter-chip');
+    const noResultsEl = this.appContainer.querySelector('#noResults');
+    const recentSection = this.appContainer.querySelector('section.w-full.space-y-3');
+
+    let activeFilter = 'all';
+    let searchQuery = '';
+
+    // Update filter chip counts
+    const moodCounts = {
+      all: entries.length,
+      great: entries.filter(e => e.mood === 'great' || e.mood === 'energized' || e.mood === 'grateful').length,
+      good: entries.filter(e => e.mood === 'good' || e.mood === 'focused' || e.mood === 'calm').length,
+      okay: entries.filter(e => e.mood === 'okay' || e.mood === 'reflective' || e.mood === 'tired' || e.mood === 'stressed').length
+    };
+
+    filterChips.forEach(chip => {
+      const filter = chip.getAttribute('data-filter') || 'all';
+      const span = chip.querySelector('span');
+      if (span) {
+        if (filter === 'all') span.innerText = `All (${moodCounts.all})`;
+        else if (filter === 'great') span.innerText = `😄 Great (${moodCounts.great})`;
+        else if (filter === 'good') span.innerText = `🙂 Good (${moodCounts.good})`;
+        else if (filter === 'okay') span.innerText = `😐 Okay (${moodCounts.okay})`;
+      }
+
+      chip.onclick = (e) => {
+        e.preventDefault();
+        filterChips.forEach(c => {
+          c.classList.remove('active', 'bg-primary-container', 'text-on-surface');
+          c.classList.add('bg-surface-container-lowest', 'text-on-surface-variant');
+        });
+        chip.classList.add('active', 'bg-primary-container', 'text-on-surface');
+        chip.classList.remove('bg-surface-container-lowest', 'text-on-surface-variant');
+        activeFilter = filter;
+        applyFilters();
+      };
+    });
+
+    if (searchInput) {
+      searchInput.oninput = debounce(() => {
+        searchQuery = (searchInput.value || '').trim().toLowerCase();
+        applyFilters();
+      }, 180);
     }
 
-    let currentJournalLimit = 20;
+    const moodEmojiMap = {
+      great: '😄',
+      energized: '⚡',
+      grateful: '🙏',
+      good: '🙂',
+      focused: '🎯',
+      calm: '🧘',
+      okay: '😐',
+      reflective: '💭',
+      tired: '😴',
+      stressed: '😤'
+    };
 
-    // --- Build dynamic entry list ---
-    const renderEntries = (list) => {
-      if (list.length === 0) {
-        listContainer.innerHTML = `
-          <div class="flex flex-col items-center justify-center py-16 px-6 text-center gap-4">
-            <div class="w-16 h-16 rounded-full bg-surface-container flex items-center justify-center">
-              <span class="material-symbols-outlined text-[32px] text-on-surface-variant">edit_note</span>
-            </div>
-            <p class="font-headline-sm font-bold text-on-surface">No journal entries yet</p>
-            <p class="font-body-md text-on-surface-variant">Write today's reflection to start building your journal.</p>
-            <button id="new-journal-btn" class="px-6 py-3 rounded-full bg-primary-container text-on-primary-fixed font-label-md font-bold hover:bg-secondary-fixed active:scale-95 transition-all shadow-sm">
-              <span class="material-symbols-outlined text-[18px] align-middle mr-1">add</span>Write Today
-            </button>
-          </div>
-        `;
-        const btn = listContainer.querySelector('#new-journal-btn');
-        if (btn) btn.onclick = () => this.navigate('journal');
+    const renderCardList = (filteredList) => {
+      if (!recentSection) return;
+
+      const existingCards = recentSection.querySelectorAll('article.entry-card');
+      existingCards.forEach(c => c.remove());
+
+      if (filteredList.length === 0) {
+        if (noResultsEl) noResultsEl.classList.remove('hidden');
         return;
+      } else {
+        if (noResultsEl) noResultsEl.classList.add('hidden');
       }
 
-      const visible = list.slice(0, currentJournalLimit);
+      filteredList.forEach(entry => {
+        const preview = entry.gratitude || entry.wins || entry.improvements || entry.notes || 'No content entered.';
+        const moodEmoji = moodEmojiMap[entry.mood] || '📝';
+        const displayMood = entry.mood ? (entry.mood.charAt(0).toUpperCase() + entry.mood.slice(1)) : 'Good';
+        const formattedDate = formatFullDate(entry.date);
 
-      let html = `
-        <div class="flex flex-col gap-3 px-4 py-2">
-          <div class="flex items-center justify-between pb-1">
-            <p class="font-label-lg font-bold text-on-surface">${list.length} ${list.length === 1 ? 'Entry' : 'Entries'}</p>
-            <button id="new-journal-btn" class="flex items-center gap-1 text-primary font-label-md font-semibold">
-              <span class="material-symbols-outlined text-[18px]">add</span>New Entry
-            </button>
+        const card = document.createElement('article');
+        card.className = 'entry-card bg-surface-container-lowest rounded-[22px] p-5 shadow-[0_4px_20px_-2px_rgba(17,17,17,0.03)] hover:shadow-md transition-shadow relative overflow-hidden group cursor-pointer';
+        card.setAttribute('data-id', String(entry.id));
+        card.setAttribute('data-mood', entry.mood || 'good');
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between gap-2 mb-2.5">
+            <span class="font-label-sm text-label-sm text-on-surface-variant">${formattedDate}</span>
+            <div class="flex items-center gap-2">
+              <span class="h-6 px-2.5 rounded-full bg-primary-container text-on-surface font-label-sm text-label-sm flex items-center gap-1">
+                <span>${moodEmoji}</span> ${displayMood}
+              </span>
+              <button class="delete-entry-btn w-7 h-7 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-error hover:bg-error-container transition-colors" data-id="${entry.id}" type="button" aria-label="Delete entry">
+                <span class="material-symbols-outlined text-[16px]">delete</span>
+              </button>
+            </div>
           </div>
-          ${visible.map(entry => {
-            const preview = entry.gratitude || entry.wins || entry.notes || 'No content';
-            const truncated = preview.length > 80 ? preview.slice(0, 80) + '...' : preview;
-            const dateObj = new Date(entry.date + 'T12:00:00');
-            const dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-            const statusColor = entry.status === 'completed' ? 'bg-secondary text-on-secondary' : 'bg-surface-container-highest text-on-surface-variant';
-            const moodEmoji = { focused: '🎯', energized: '⚡', calm: '🧘', grateful: '🙏', reflective: '💭', tired: '😴', stressed: '😤' }[entry.mood] || '📝';
-            return `
-              <div class="journal-entry-card bg-surface-container-lowest rounded-2xl p-4 border border-outline-variant/20 shadow-sm flex flex-col gap-2 cursor-pointer hover:shadow-md transition-shadow" data-entry-id="${entry.id}">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <span class="text-lg">${moodEmoji}</span>
-                    <p class="font-label-lg font-bold text-on-surface">${dateLabel}</p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span class="px-2.5 py-0.5 rounded-full ${statusColor} font-label-sm font-medium">${entry.status === 'completed' ? 'Complete' : 'Draft'}</span>
-                    <button class="delete-entry-btn w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-error hover:bg-error-container transition-colors" data-id="${entry.id}" data-date="${entry.date}">
-                      <span class="material-symbols-outlined text-[18px]">delete</span>
-                    </button>
-                  </div>
-                </div>
-                <p class="font-body-md text-on-surface-variant line-clamp-2">${truncated}</p>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `;
-
-      if (list.length > currentJournalLimit) {
-        html += `
-          <div class="pt-2 pb-4 text-center px-4">
-            <button id="journal-load-more-btn" class="w-full py-3 rounded-full bg-surface-container text-on-surface font-label-md font-semibold hover:bg-surface-container-high active:scale-98 transition-all shadow-xs flex items-center justify-center gap-2">
-              <span class="material-symbols-outlined text-[18px]">expand_more</span>
-              <span>Load More Reflections (${list.length - currentJournalLimit} remaining)</span>
-            </button>
+          <h4 class="font-headline-sm text-headline-sm text-on-surface mb-1.5 group-hover:text-primary transition-colors">
+            ${entry.reflection || 'Daily Reflection'}
+          </h4>
+          <p class="font-body-md text-body-md text-on-surface-variant line-clamp-2 mb-3">
+            ${preview}
+          </p>
+          <div class="flex items-center justify-between pt-1">
+            <div class="flex items-center gap-1 text-outline font-label-sm text-label-sm">
+              <span class="material-symbols-outlined text-[16px]">timer</span>
+              <span>${entry.status === 'completed' ? 'Completed' : 'Draft'}</span>
+            </div>
+            <span class="inline-flex items-center gap-1 font-label-md text-label-md text-primary font-semibold group-hover:translate-x-0.5 transition-transform">
+              View entry <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+            </span>
           </div>
         `;
-      }
 
-      listContainer.innerHTML = html;
-
-      const loadMoreBtn = listContainer.querySelector('#journal-load-more-btn');
-      if (loadMoreBtn) {
-        loadMoreBtn.onclick = () => {
-          currentJournalLimit += 20;
-          renderEntries(list);
-        };
-      }
-
-      // Wire new entry button
-      const newBtn = listContainer.querySelector('#new-journal-btn');
-      if (newBtn) newBtn.onclick = () => this.navigate('journal');
-
-      // Wire entry cards to reopen
-      listContainer.querySelectorAll('.journal-entry-card').forEach(card => {
         card.onclick = (e) => {
           if (e.target.closest('.delete-entry-btn')) return;
+          this.selectedDailyDate = entry.date;
           this.navigate('journal');
         };
-      });
 
-      // Wire delete buttons
-      listContainer.querySelectorAll('.delete-entry-btn').forEach(btn => {
-        btn.onclick = async (e) => {
-          e.stopPropagation();
-          const entryId = parseInt(btn.getAttribute('data-id'), 10);
-          const entryDate = btn.getAttribute('data-date');
-          this.showConfirm({
-            title: 'Delete Entry',
-            message: `Delete journal entry from ${entryDate}?`,
-            onConfirm: async () => {
-              await JournalService.delete(entryId);
-              this.showToast('Entry deleted');
-              await this.handleRoute();
-            }
-          });
-        };
+        const delBtn = card.querySelector('.delete-entry-btn');
+        if (delBtn) {
+          delBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.showConfirm({
+              title: 'Delete Journal Entry',
+              message: `Are you sure you want to delete the reflection for ${formattedDate}?`,
+              confirmText: 'Delete',
+              isDestructive: true,
+              onConfirm: async () => {
+                await JournalService.delete(entry.id);
+                this.showToast('Journal entry deleted');
+                await this.hydrateJournalHistory();
+              }
+            });
+          };
+        }
+
+        recentSection.appendChild(card);
       });
     };
 
-    renderEntries(entries);
+    const applyFilters = () => {
+      let filtered = [...entries];
+      if (activeFilter !== 'all') {
+        if (activeFilter === 'great') {
+          filtered = filtered.filter(e => e.mood === 'great' || e.mood === 'energized' || e.mood === 'grateful');
+        } else if (activeFilter === 'good') {
+          filtered = filtered.filter(e => e.mood === 'good' || e.mood === 'focused' || e.mood === 'calm');
+        } else if (activeFilter === 'okay') {
+          filtered = filtered.filter(e => e.mood === 'okay' || e.mood === 'reflective' || e.mood === 'tired' || e.mood === 'stressed');
+        } else {
+          filtered = filtered.filter(e => e.mood === activeFilter);
+        }
+      }
+
+      if (searchQuery) {
+        filtered = filtered.filter(e =>
+          (e.gratitude && e.gratitude.toLowerCase().includes(searchQuery)) ||
+          (e.wins && e.wins.toLowerCase().includes(searchQuery)) ||
+          (e.improvements && e.improvements.toLowerCase().includes(searchQuery)) ||
+          (e.notes && e.notes.toLowerCase().includes(searchQuery)) ||
+          (e.reflection && e.reflection.toLowerCase().includes(searchQuery)) ||
+          (e.mood && e.mood.toLowerCase().includes(searchQuery))
+        );
+      }
+
+      renderCardList(filtered);
+    };
+
+    // 2. Month Calendar at top
+    const calSection = this.appContainer.querySelector('section.w-full.bg-surface-container-lowest');
+    if (calSection) {
+      const monthTitle = calSection.querySelector('h2.font-headline-sm, .font-headline-sm');
+      const now = new Date();
+      if (monthTitle) {
+        monthTitle.innerText = `${getLocalMonthName(now)} ${now.getFullYear()}`;
+      }
+
+      const entryDates = new Set(entries.map(e => e.date));
+      const currentDay = now.getDate();
+
+      const dayButtons = calSection.querySelectorAll('.grid.grid-cols-7 button');
+      dayButtons.forEach(btn => {
+        const textNum = parseInt(btn.innerText.trim(), 10);
+        if (isNaN(textNum)) return;
+        const btnDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(textNum).padStart(2, '0')}`;
+
+        if (textNum === currentDay) {
+          btn.className = 'w-8 h-8 rounded-full bg-primary-container text-on-surface font-headline-sm text-headline-sm flex items-center justify-center shadow-[0_2px_8px_rgba(214,243,161,0.9)] scale-105';
+        } else if (entryDates.has(btnDateStr)) {
+          btn.className = 'w-8 h-8 rounded-full bg-primary-container/40 text-on-surface font-body-sm text-body-sm flex flex-col items-center justify-center relative hover:bg-primary-container/60';
+          if (!btn.querySelector('span')) {
+            btn.innerHTML = `${textNum}<span class="w-1 h-1 rounded-full bg-primary"></span>`;
+          }
+        } else {
+          btn.className = 'w-8 h-8 rounded-full flex items-center justify-center font-body-sm text-body-sm text-on-surface hover:bg-surface-container';
+        }
+
+        btn.onclick = (e) => {
+          e.preventDefault();
+          this.selectedDailyDate = btnDateStr;
+          this.navigate('journal');
+        };
+      });
+    }
+
+    applyFilters();
   }
 
   async hydrateWeeklyReview() {
-    const now = new Date();
-    const dayOfWeek = now.getDay() || 7;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - (dayOfWeek - 1));
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    const weekStart = monday.toISOString().split('T')[0];
-    const weekEnd = sunday.toISOString().split('T')[0];
+    const { weekStart, weekEnd } = getCurrentWeek();
 
     // Wire back button
     const backBtn = this.appContainer.querySelector('button[aria-label="Go back"], header a[aria-label="Back"]');
@@ -1834,11 +2240,11 @@ export class AppRouter {
     // Week selector display
     const weekLabel = this.appContainer.querySelector('.font-label-md.text-on-surface.font-semibold');
     if (weekLabel) {
-      weekLabel.innerText = `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+      weekLabel.innerText = `${formatHeaderDate(weekStart)} – ${formatHeaderDate(weekEnd)}`;
     }
 
     // Real weekly metrics
-    const habits = await HabitService.getAll(false);
+    const habits = await HabitService.getAll(false, true);
     const journals = await JournalService.getAll();
     const goals = await GoalService.getAll();
 
@@ -3238,16 +3644,14 @@ export class AppRouter {
 
     // --- PERFORMANCE METRICS: 2x3 Bento Grid ---
     if (stats) {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
       const todayTrades = await db.trades.where('accountId').equals(account.id).filter(t => t.closeDate && t.closeDate.startsWith(todayStr)).toArray();
       const todayPL = todayTrades.reduce((s, t) => s + t.pnl, 0);
       const todayPct = account.currentBalance > 0 ? ((todayPL / account.currentBalance) * 100).toFixed(2) : '0.00';
 
       // Get week trades
-      const weekStart = new Date();
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-      const weekStr = weekStart.toISOString().split('T')[0];
-      const weekTrades = await db.trades.where('accountId').equals(account.id).filter(t => t.closeDate && t.closeDate.split(' ')[0] >= weekStr).toArray();
+      const { weekStart } = getCurrentWeek();
+      const weekTrades = await db.trades.where('accountId').equals(account.id).filter(t => t.closeDate && t.closeDate.split(' ')[0] >= weekStart).toArray();
       const weekPL = weekTrades.reduce((s, t) => s + t.pnl, 0);
       const weekPct = account.startingBalance > 0 ? ((weekPL / account.startingBalance) * 100).toFixed(2) : '0.00';
 
@@ -3877,19 +4281,180 @@ export class AppRouter {
   }
 
   async hydrateProgress() {
-    this.appContainer.querySelectorAll('button, a').forEach(btn => {
-      const text = btn.innerText?.trim() || '';
-      if (text.includes('Habit Statistics')) btn.onclick = () => this.navigate('habit-stats');
-      else if (text.includes('Goal Statistics')) btn.onclick = () => this.navigate('goal-stats');
-      else if (text.includes('Personal Statistics')) btn.onclick = () => this.navigate('personal-stats');
-      else if (text.includes('Weekly Review')) btn.onclick = () => this.navigate('weekly-review');
+    const habits = await HabitService.getAll(false, true);
+    const goals = await GoalService.getAll();
+    const activeGoals = goals.filter(g => g.status === 'ACTIVE');
+    const completedGoals = goals.filter(g => g.status === 'COMPLETED');
+    const journals = await JournalService.getAll();
+
+    // 1. Week Selector (using local date)
+    const currentWeekOffset = this.progressWeekOffset || 0;
+    const now = new Date();
+    now.setDate(now.getDate() + (currentWeekOffset * 7));
+    const currentWeek = getCurrentWeek(now);
+    const { weekStart, weekEnd, days } = currentWeek;
+
+    const weekLabel = this.appContainer.querySelector('.flex.items-center.gap-1\\.5.cursor-pointer .font-label-md') ||
+      Array.from(this.appContainer.querySelectorAll('span')).find(s => s.innerText.includes('Oct 21') || (s.innerText.includes('–') && s.innerText.includes('202')));
+    if (weekLabel) {
+      weekLabel.innerText = `${formatHeaderDate(weekStart)} – ${formatHeaderDate(weekEnd)}`;
+    }
+
+    const prevWeekBtn = this.appContainer.querySelector('button[aria-label="Previous week"]');
+    if (prevWeekBtn) {
+      prevWeekBtn.onclick = (e) => {
+        e.preventDefault();
+        this.progressWeekOffset = (this.progressWeekOffset || 0) - 1;
+        this.hydrateProgress();
+      };
+    }
+    const nextWeekBtn = this.appContainer.querySelector('button[aria-label="Next week"]');
+    if (nextWeekBtn) {
+      nextWeekBtn.onclick = (e) => {
+        e.preventDefault();
+        this.progressWeekOffset = (this.progressWeekOffset || 0) + 1;
+        this.hydrateProgress();
+      };
+    }
+
+    // 2. Weekly Flow 7-day Bar Chart
+    const barGrid = this.appContainer.querySelector('.grid.grid-cols-7');
+    let totalWeekCompletions = 0;
+    let totalWeekTargets = 0;
+
+    const weekDayStats = [];
+    for (const d of days) {
+      const stats = await HabitService.getDailyCompletionStats(d.dateStr, habits);
+      weekDayStats.push({ ...d, stats });
+      totalWeekCompletions += stats.completed;
+      totalWeekTargets += stats.total;
+    }
+
+    if (barGrid) {
+      const dayBars = barGrid.children;
+      if (dayBars.length === 7) {
+        weekDayStats.forEach((d, idx) => {
+          const col = dayBars[idx];
+          if (!col) return;
+          const pct = d.stats.percentage;
+          const isCurrDay = isToday(d.dateStr);
+
+          const pctLabel = col.querySelector('span.font-label-sm');
+          if (pctLabel) {
+            pctLabel.innerText = isCurrDay ? 'Today' : `${pct}%`;
+          }
+
+          const barInner = col.querySelector('.rounded-full.transition-all, .w-full.rounded-full > div');
+          if (barInner) {
+            barInner.style.height = `${Math.max(4, pct)}%`;
+            if (pct >= 100) {
+              barInner.className = 'w-full bg-secondary rounded-full transition-all duration-500';
+            } else if (pct > 0) {
+              barInner.className = 'w-full bg-secondary-fixed-dim rounded-full transition-all duration-500';
+            } else {
+              barInner.className = isCurrDay ? 'w-full bg-primary/40 rounded-full transition-all duration-500' : 'w-full bg-surface-container rounded-full transition-all duration-500';
+            }
+          }
+
+          const weekdayLetter = col.querySelector('span.font-label-md');
+          if (weekdayLetter) {
+            weekdayLetter.className = isCurrDay
+              ? 'font-label-md text-label-md text-secondary font-bold'
+              : 'font-label-md text-label-md text-on-surface font-semibold';
+          }
+        });
+      }
+    }
+
+    // 3. Weekly Momentum Hero Card
+    const weeklyPct = totalWeekTargets > 0 ? Math.round((totalWeekCompletions / totalWeekTargets) * 100) : 0;
+    const pctEl = this.appContainer.querySelector('.font-display-lg');
+    if (pctEl) pctEl.innerText = `${weeklyPct}%`;
+
+    const momentumCircle = this.appContainer.querySelector('circle[stroke-dasharray="188.4"]');
+    if (momentumCircle) {
+      const circ = 188.4;
+      momentumCircle.style.strokeDashoffset = `${circ * (1 - weeklyPct / 100)}`;
+    }
+
+    // 4. 3-Column Micro Stats
+    let bestHabitStreak = 0;
+    for (const h of habits) {
+      const s = await HabitService.getStreaks(h.id);
+      if (s.currentStreak > bestHabitStreak) bestHabitStreak = s.currentStreak;
+    }
+    const weekJournals = journals.filter(j => j.date >= weekStart && j.date <= weekEnd).length;
+
+    const microStats = this.appContainer.querySelectorAll('.grid.grid-cols-3 > div');
+    if (microStats.length >= 3) {
+      const streakEl = microStats[0].querySelector('.font-headline-sm');
+      if (streakEl) streakEl.innerHTML = `${bestHabitStreak} Days 🔥`;
+
+      const goalsEl = microStats[1].querySelector('.font-headline-sm');
+      if (goalsEl) goalsEl.innerHTML = `${completedGoals.length} Done`;
+
+      const journalEl = microStats[2].querySelector('.font-headline-sm');
+      if (journalEl) journalEl.innerHTML = `${weekJournals} / 7`;
+    }
+
+    // 5. Breakdown & Stats Cards
+    const breakdownCards = this.appContainer.querySelectorAll('main a.flex.flex-col.bg-surface-container-lowest');
+    breakdownCards.forEach(card => {
+      const text = card.innerText || '';
+      if (text.includes('Habit Statistics')) {
+        const sub = card.querySelector('p.font-body-sm');
+        if (sub) sub.innerText = `${habits.length} active habits • ${bestHabitStreak}-day streak`;
+        const consistencyText = card.querySelector('.font-label-sm.font-medium');
+        if (consistencyText) consistencyText.innerText = `${weeklyPct}% consistency`;
+        const bar = card.querySelector('.h-full.bg-secondary');
+        if (bar) bar.style.width = `${weeklyPct}%`;
+
+        card.onclick = (e) => {
+          e.preventDefault();
+          this.navigate('habit-stats');
+        };
+      } else if (text.includes('Goal Statistics')) {
+        const sub = card.querySelector('p.font-body-sm');
+        if (sub) sub.innerText = `${activeGoals.length} active • ${completedGoals.length} completed`;
+        card.onclick = (e) => {
+          e.preventDefault();
+          this.navigate('goal-stats');
+        };
+      } else if (text.includes('Personal Growth') || text.includes('Personal Statistics')) {
+        const sub = card.querySelector('p.font-body-sm');
+        const journalCount = journals.filter(j => j.status === 'completed').length;
+        if (sub) sub.innerText = `${journalCount} total days logged • Level ${Math.min(10, Math.floor(journalCount / 7) + 1)}`;
+        card.onclick = (e) => {
+          e.preventDefault();
+          this.navigate('personal-stats');
+        };
+        const detailsBtn = card.querySelector('.font-label-sm.font-bold');
+        if (detailsBtn) {
+          detailsBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.navigate('personal-stats');
+          };
+        }
+      }
     });
+
+    // 6. Weekly Review Action Banner
+    const weeklyReviewBtn = Array.from(this.appContainer.querySelectorAll('button')).find(b =>
+      b.innerText.includes('Start Weekly Review') || b.innerText.includes('Weekly Review')
+    );
+    if (weeklyReviewBtn) {
+      weeklyReviewBtn.onclick = (e) => {
+        e.preventDefault();
+        this.navigate('weekly-review');
+      };
+    }
   }
 
   async hydrateHabitStats() {
-    const habits = await HabitService.getAll(false);
-    const todayStr = new Date().toISOString().split('T')[0];
-    const dailyStats = await HabitService.getDailyCompletionStats(todayStr);
+    const habits = await HabitService.getAll(false, true);
+    const todayStr = getLocalDateString();
+    const dailyStats = await HabitService.getDailyCompletionStats(todayStr, habits);
 
     // Best streak across all habits
     let bestOverallStreak = 0;
@@ -3912,9 +4477,10 @@ export class AppRouter {
   }
 
   async hydratePersonalStats() {
-    const habits = await HabitService.getAll(false);
+    const habits = await HabitService.getAll(false, true);
     const goals = await GoalService.getAll();
-    const journalCount = await db.journalEntries.where('status').equals('completed').count();
+    const journals = await JournalService.getAll();
+    const journalCount = journals.filter(j => j.status === 'completed').length;
     const completedGoals = goals.filter(g => g.status === 'COMPLETED').length;
 
     // Wire navigation

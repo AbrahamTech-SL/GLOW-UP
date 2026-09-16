@@ -1,4 +1,5 @@
 import Dexie from 'dexie';
+import { getLocalDateString } from '../utils/date.js';
 
 export const db = new Dexie('GlowUpDB');
 
@@ -91,10 +92,61 @@ export function matchesActiveUser(item, targetUid) {
 }
 
 // ==========================================
+// DEFAULT COMPANY HABIT TEMPLATES (16 HABITS, ZERO COMPLETIONS INITIALLY)
+// ==========================================
+export const DEFAULT_HABIT_TEMPLATES = [
+  // DAILY NON-NEGOTIABLES (1-11)
+  { name: 'Wake before 7 AM', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'alarm', target: 7, order: 1 },
+  { name: 'Pray + Bible', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'menu_book', target: 7, order: 2 },
+  { name: 'Workout 20–30 min', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'fitness_center', target: 7, order: 3 },
+  { name: '10K steps', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'directions_walk', target: 7, order: 4 },
+  { name: 'No social media before 10 AM', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'phonelink_erase', target: 7, order: 5 },
+  { name: 'Meditate 5–10 min', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'self_improvement', target: 7, order: 6 },
+  { name: 'Follow trading plan + journal', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'monitoring', target: 7, order: 7 },
+  { name: '1 hour coding/business', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'code', target: 7, order: 8 },
+  { name: 'Eat clean + drink water', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'water_drop', target: 7, order: 9 },
+  { name: 'No porn', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'shield', target: 7, order: 10 },
+  { name: 'Phone off by 11 PM', category: 'Daily Non-Negotiables', isNonNegotiable: true, frequency: 'daily', icon: 'bedtime', target: 7, order: 11 },
+  // SMALL DAILY HABITS (12-16)
+  { name: 'Read 10 pages', category: 'Small Daily Habits', isNonNegotiable: false, frequency: 'daily', icon: 'auto_stories', target: 7, order: 12 },
+  { name: 'Learn one thing', category: 'Small Daily Habits', isNonNegotiable: false, frequency: 'daily', icon: 'psychology', target: 7, order: 13 },
+  { name: 'Clean room 5–10 min', category: 'Small Daily Habits', isNonNegotiable: false, frequency: 'daily', icon: 'cleaning_services', target: 7, order: 14 },
+  { name: 'Track spending', category: 'Small Daily Habits', isNonNegotiable: false, frequency: 'daily', icon: 'payments', target: 7, order: 15 },
+  { name: 'Talk to someone I care about', category: 'Small Daily Habits', isNonNegotiable: false, frequency: 'daily', icon: 'favorite', target: 7, order: 16 }
+];
+
+export async function seedDefaultHabits(targetUid) {
+  const uid = targetUid || getActiveUserId();
+  let existing = [];
+  try {
+    existing = await db.habits.where('userId').equals(uid).toArray();
+  } catch {
+    existing = await db.habits.filter(h => matchesActiveUser(h, uid)).toArray();
+  }
+  if (existing.length === 0) {
+    const habitsToSeed = DEFAULT_HABIT_TEMPLATES.map(t => ({
+      userId: uid,
+      name: t.name,
+      description: '',
+      category: t.category,
+      frequency: t.frequency,
+      target: t.target,
+      icon: t.icon,
+      order: t.order,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      archivedAt: null
+    }));
+    await db.habits.bulkAdd(habitsToSeed);
+  }
+  return HabitService.getAll(false);
+}
+
+// ==========================================
 // 1. HABIT SERVICE
 // ==========================================
 export const HabitService = {
-  async getAll(includeArchived = false) {
+  async getAll(includeArchived = false, autoSeed = false) {
     const uid = getActiveUserId();
     let habits;
     try {
@@ -102,14 +154,18 @@ export const HabitService = {
     } catch {
       habits = await db.habits.filter(h => matchesActiveUser(h, uid)).toArray();
     }
-    if (uid === 'default_user' && habits.length === 0) {
-      const all = await db.habits.toArray();
-      habits = all.filter(h => matchesActiveUser(h, uid));
+    if (autoSeed && habits.length === 0) {
+      await seedDefaultHabits(uid);
+      try {
+        habits = await db.habits.where('userId').equals(uid).toArray();
+      } catch {
+        habits = await db.habits.filter(h => matchesActiveUser(h, uid)).toArray();
+      }
     }
     if (!includeArchived) {
       habits = habits.filter(h => !h.archivedAt);
     }
-    return habits;
+    return habits.sort((a, b) => (a.order || 999) - (b.order || 999));
   },
 
   async create({ name, description = '', frequency = 'daily', target = 7 }) {
@@ -155,7 +211,7 @@ export const HabitService = {
     await queueSyncMutation('habits', hid, 'delete');
   },
 
-  async toggleCompletion(habitId, dateStr = new Date().toISOString().split('T')[0]) {
+  async toggleCompletion(habitId, dateStr = getLocalDateString()) {
     const hid = parseInt(habitId, 10);
     let existing = null;
     try {
@@ -196,11 +252,15 @@ export const HabitService = {
     return nextCompleted;
   },
 
-  async toggle(habitId, dateStr = new Date().toISOString().split('T')[0]) {
+  async toggle(habitId, dateStr = getLocalDateString()) {
     return this.toggleCompletion(habitId, dateStr);
   },
 
-  async isCompletedToday(habitId, dateStr = new Date().toISOString().split('T')[0]) {
+  async isCompleted(habitId, dateStr = getLocalDateString()) {
+    return this.isCompletedToday(habitId, dateStr);
+  },
+
+  async isCompletedToday(habitId, dateStr = getLocalDateString()) {
     const hid = parseInt(habitId, 10);
     let entry = null;
     try {
@@ -215,6 +275,44 @@ export const HabitService = {
         .first();
     }
     return !!entry?.completed;
+  },
+
+  async setCompletion(habitId, dateStr = getLocalDateString(), completed = true) {
+    const hid = parseInt(habitId, 10);
+    let existing = null;
+    try {
+      existing = await db.habitEntries.where('[habitId+date]').equals([hid, dateStr]).first();
+      if (existing && !matchesActiveUser(existing)) existing = null;
+    } catch {
+      // fallback
+    }
+    if (!existing) {
+      existing = await db.habitEntries
+        .filter(e => (e.habitId === hid || e.habitId === habitId) && e.date === dateStr && matchesActiveUser(e))
+        .first();
+    }
+
+    if (existing) {
+      await db.habitEntries.update(existing.id, {
+        completed: !!completed,
+        updatedAt: new Date().toISOString()
+      });
+      await queueSyncMutation('habitEntries', existing.id, 'update', { completed: !!completed });
+    } else {
+      const entry = {
+        userId: getActiveUserId(),
+        habitId: hid,
+        date: dateStr,
+        completed: !!completed,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      const id = await db.habitEntries.add(entry);
+      await queueSyncMutation('habitEntries', id, 'create', entry);
+    }
+
+    await AchievementService.checkAll();
+    return !!completed;
   },
 
   async getStreaks(habitId) {
@@ -235,11 +333,11 @@ export const HabitService = {
     for (let i = 0; i < 365; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = getLocalDateString(d);
 
       if (completedDates.has(dateStr)) {
         tempStreak++;
-        if (i === 0 || i === 1 && currentStreak === 0) {
+        if (i === 0 || (i === 1 && currentStreak === 0)) {
           currentStreak = tempStreak;
         }
       } else {
@@ -256,7 +354,7 @@ export const HabitService = {
     return { currentStreak, bestStreak };
   },
 
-  async getDailyCompletionStats(dateStr = new Date().toISOString().split('T')[0], preloadedHabits = null) {
+  async getDailyCompletionStats(dateStr = getLocalDateString(), preloadedHabits = null) {
     const habits = preloadedHabits || await this.getAll(false);
     if (habits.length === 0) return { total: 0, completed: 0, percentage: 0 };
 
@@ -289,7 +387,7 @@ export const HabitService = {
 // 2. JOURNAL SERVICE
 // ==========================================
 export const JournalService = {
-  async getToday(dateStr = new Date().toISOString().split('T')[0]) {
+  async getToday(dateStr = getLocalDateString()) {
     const uid = getActiveUserId();
     let entry = null;
     try {
@@ -325,8 +423,8 @@ export const JournalService = {
     return this.save(data);
   },
 
-  async save({ date, mood = 'focused', gratitude = '', wins = '', improvements = '', notes = '', status = 'completed' }) {
-    const dateStr = date || new Date().toISOString().split('T')[0];
+  async save({ date, mood = 'focused', reflection = '', gratitude = '', wins = '', improvements = '', notes = '', status = 'completed' }) {
+    const dateStr = date || getLocalDateString();
     const existing = await db.journalEntries.filter(j => j.date === dateStr && matchesActiveUser(j)).first();
     const now = new Date().toISOString();
 
@@ -334,6 +432,7 @@ export const JournalService = {
       userId: getActiveUserId(),
       date: dateStr,
       mood,
+      reflection: reflection.trim(),
       gratitude: gratitude.trim(),
       wins: wins.trim(),
       improvements: improvements.trim(),
@@ -556,7 +655,7 @@ export const MoneyService = {
       type: type.toLowerCase() === 'income' ? 'income' : 'expense',
       amount: numAmount,
       category: category.trim(),
-      date: date || new Date().toISOString().split('T')[0],
+      date: date || getLocalDateString(),
       notes: notes.trim(),
       recurring: !!recurring,
       createdAt: new Date().toISOString(),
@@ -566,6 +665,14 @@ export const MoneyService = {
     const id = await db.transactions.add(tx);
     await queueSyncMutation('transactions', id, 'create', tx);
     return { id, ...tx };
+  },
+
+  async createTransaction(data) {
+    return this.addTransaction(data);
+  },
+
+  async create(data) {
+    return this.addTransaction(data);
   },
 
   async editTransaction(id, updates) {
@@ -585,7 +692,7 @@ export const MoneyService = {
     await queueSyncMutation('transactions', tid, 'delete');
   },
 
-  async getFinancialStats(monthYearStr = new Date().toISOString().slice(0, 7)) {
+  async getFinancialStats(monthYearStr = getLocalDateString().slice(0, 7)) {
     const all = await db.transactions.filter(t => matchesActiveUser(t)).toArray();
     const monthTx = all.filter(t => t.date && t.date.startsWith(monthYearStr));
 
@@ -607,7 +714,7 @@ export const MoneyService = {
     };
   },
 
-  async getBudgetStatus(monthYearStr = new Date().toISOString().slice(0, 7)) {
+  async getBudgetStatus(monthYearStr = getLocalDateString().slice(0, 7)) {
     const budget = await db.budgets.filter(b => b.month === monthYearStr && matchesActiveUser(b)).first();
     const totalLimit = budget?.totalLimit || 4000;
 
@@ -649,7 +756,7 @@ export const AchievementService = {
         if (ach && !ach.unlocked) {
           await db.achievements.update(ach.id, {
             unlocked: true,
-            unlockedAt: new Date().toISOString().split('T')[0]
+            unlockedAt: getLocalDateString()
           });
         }
       }
@@ -667,20 +774,17 @@ export const AchievementService = {
     if (ach && !ach.unlocked) {
       await db.achievements.update(ach.id, {
         unlocked: true,
-        unlockedAt: new Date().toISOString().split('T')[0]
+        unlockedAt: getLocalDateString()
       });
     }
   }
 };
 
 // ==========================================
-// INITIAL DATA SEEDER (CLEAN CATALOG ONLY — ZERO FAKE DATA)
+// INITIAL DATA SEEDER (CLEAN CATALOG ONLY)
 // ==========================================
 export async function seedInitialData() {
-  // Ensure default achievements catalog exists, but all locked (unlocked: false)
-  // This is SYSTEM catalog data, NOT personal user data.
-  // No habits, journals, goals, transactions, or trades are seeded.
-  // A new user starts with a completely empty personal app.
+  // 1. Ensure default achievements catalog exists, but all locked (unlocked: false)
   const achCount = await db.achievements.count();
   if (achCount === 0) {
     await db.achievements.bulkAdd([
