@@ -1,23 +1,11 @@
 import {
   db,
   seedInitialData,
-  cleanResetUserData,
-  HabitService,
-  JournalService,
-  GoalService,
-  MoneyService
+  HabitService
 } from './db/index.js';
 import { AppRouter } from './router/index.js';
 import { AuthService } from './auth/index.js';
 
-if (typeof window !== 'undefined') {
-  window.AuthService = AuthService;
-  window.db = db;
-  window.HabitService = HabitService;
-  window.JournalService = JournalService;
-  window.GoalService = GoalService;
-  window.MoneyService = MoneyService;
-}
 
 console.log('Initializing GLOW UP App...');
 
@@ -29,16 +17,19 @@ async function initApp() {
     // 2. Await auth session recovery to restore active user before routing
     await AuthService.isReady();
 
-    // 3. Purge legacy demo/test data if detected
+    // 3. Purge legacy demo/test data for default_user only (never wipe authenticated user data)
     const legacyAlex = await db.users.where('email').equals('alex@glowup.io').first();
+    if (legacyAlex) {
+      await db.users.delete(legacyAlex.id);
+    }
     const demoHabit = await db.habits.where('name').equals('Morning meditation & breathwork').first();
-    if (legacyAlex || demoHabit) {
-      if (legacyAlex) await db.users.delete(legacyAlex.id);
-      await cleanResetUserData('default_user');
-      const curUser = AuthService.getCurrentUser();
-      if (curUser?.id) {
-        await cleanResetUserData(curUser.id);
-      }
+    if (demoHabit) {
+      await db.habits.where('name').equals('Morning meditation & breathwork').delete();
+    }
+    const curUser = AuthService.getCurrentUser();
+    if (curUser?.id) {
+      // Ensure the 16 default habits exist for the authenticated user (unchecked)
+      await HabitService.getAll(false, true);
     }
 
     // 4. Initialize and start SPA router

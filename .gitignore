@@ -12,6 +12,8 @@ scratch/
 
 # Environment Variables (CRITICAL FOR PRODUCTION SECURITY)
 .env
+.env.*
+!.env*.example
 .env.local
 .env.*.local
 .env.development.local

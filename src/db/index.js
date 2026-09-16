@@ -53,6 +53,24 @@ db.version(4).stores({
   syncQueue: '++id, userId, table, recordId, action, status, createdAt'
 });
 
+// Version 5 schema: Dedicated user preferences store and rich profile fields
+db.version(5).stores({
+  users: '++id, userId, name, email, username, dob, avatarUrl, createdAt',
+  habits: '++id, userId, [userId+archivedAt], name, frequency, archivedAt, createdAt',
+  habitEntries: '++id, userId, [userId+date], [habitId+date], habitId, date, completed',
+  journalEntries: '++id, userId, [userId+date], date, status, mood, createdAt',
+  goals: '++id, userId, [userId+status], name, category, status, deadline',
+  goalMilestones: '++id, userId, [userId+goalId], goalId, completed',
+  transactions: '++id, userId, [userId+date], [userId+type], name, type, category, date, recurring',
+  budgets: '++id, userId, [userId+month], month',
+  tradingAccounts: '++id, userId, [userId+status], name, type, status, broker',
+  trades: '++id, userId, [userId+accountId], accountId, instrument, direction, result, openDate, closeDate',
+  weeklyReviews: '++id, userId, [userId+weekStart], weekStart, weekEnd, status',
+  achievements: '++id, userId, [userId+achievementKey], achievementKey, unlocked',
+  preferences: '++id, userId, key, [userId+key]',
+  syncQueue: '++id, userId, table, recordId, action, status, createdAt'
+});
+
 // Multi-User Context
 let activeUserId = 'default_user';
 
@@ -776,6 +794,111 @@ export const AchievementService = {
         unlocked: true,
         unlockedAt: getLocalDateString()
       });
+    }
+  }
+};
+
+// ==========================================
+// 6. USER & PREFERENCES SERVICE
+// ==========================================
+export const PreferenceService = {
+  async get(key, defaultValue = null) {
+    const uid = getActiveUserId();
+    try {
+      if (db.preferences) {
+        const item = await db.preferences.where({ userId: uid, key }).first();
+        if (item && item.value !== undefined) return item.value;
+      }
+    } catch {
+      // ignore
+    }
+    // Fallback to localStorage
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = window.localStorage.getItem(`glow_pref_${uid}_${key}`);
+      if (stored !== null) {
+        try { return JSON.parse(stored); } catch { return stored; }
+      }
+    }
+    return defaultValue;
+  },
+
+  async set(key, value) {
+    const uid = getActiveUserId();
+    try {
+      if (db.preferences) {
+        const existing = await db.preferences.where({ userId: uid, key }).first();
+        if (existing) {
+          await db.preferences.update(existing.id, { value, updatedAt: new Date().toISOString() });
+        } else {
+          await db.preferences.add({ userId: uid, key, value, createdAt: new Date().toISOString() });
+        }
+      }
+    } catch {
+      // ignore
+    }
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(`glow_pref_${uid}_${key}`, JSON.stringify(value));
+    }
+    return value;
+  },
+
+  async getAll() {
+    const uid = getActiveUserId();
+    const result = {};
+    try {
+      if (db.preferences) {
+        const items = await db.preferences.where('userId').equals(uid).toArray();
+        items.forEach(it => { result[it.key] = it.value; });
+      }
+    } catch {
+      // ignore
+    }
+    return result;
+  }
+};
+
+export const UserService = {
+  async getProfile(targetUid) {
+    const uid = targetUid || getActiveUserId();
+    let profile = null;
+    try {
+      profile = await db.users.where('userId').equals(uid).first();
+    } catch {
+      // ignore
+    }
+    if (!profile) {
+      try {
+        profile = await db.users.filter(u => matchesActiveUser(u, uid)).first();
+      } catch {
+        // ignore
+      }
+    }
+    return profile;
+  },
+
+  async saveProfile(data, targetUid) {
+    const uid = targetUid || getActiveUserId();
+    const existing = await this.getProfile(uid);
+    const now = new Date().toISOString();
+    const record = {
+      userId: uid,
+      name: data.name !== undefined ? data.name : (existing?.name || ''),
+      email: data.email !== undefined ? data.email : (existing?.email || ''),
+      username: data.username !== undefined ? data.username : (existing?.username || ''),
+      dob: data.dob !== undefined ? data.dob : (existing?.dob || ''),
+      avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : (existing?.avatarUrl || ''),
+      intention: data.intention !== undefined ? data.intention : (existing?.intention || ''),
+      primaryFocus: data.primaryFocus !== undefined ? data.primaryFocus : (existing?.primaryFocus || 'Personal'),
+      updatedAt: now
+    };
+
+    if (existing && existing.id) {
+      await db.users.update(existing.id, record);
+      return { ...existing, ...record };
+    } else {
+      record.createdAt = now;
+      const id = await db.users.add(record);
+      return { id, ...record };
     }
   }
 };

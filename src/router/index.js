@@ -2,6 +2,7 @@ import { screensData } from '../screens/screensData.js';
 import {
   db,
   seedInitialData,
+  cleanResetUserData,
   getActiveUserId,
   setActiveUserId,
   matchesActiveUser,
@@ -9,7 +10,9 @@ import {
   JournalService,
   GoalService,
   MoneyService,
-  AchievementService
+  AchievementService,
+  PreferenceService,
+  UserService
 } from '../db/index.js';
 import { TradingEngine } from '../trading/engine.js';
 import { AuthService } from '../auth/index.js';
@@ -51,6 +54,99 @@ export function renderSkeletonCards(count = 3, cardHeight = 'h-20') {
     </div>
   `).join('');
 }
+
+export const ThemeManager = {
+  apply(mode) {
+    if (typeof document === 'undefined') return;
+    const isDark = mode === 'dark' || (mode === 'system' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  },
+  async getTheme() {
+    return (await PreferenceService.get('appearance_theme', 'system')) || 'system';
+  },
+  async setTheme(theme) {
+    await PreferenceService.set('appearance_theme', theme);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('glow_theme', theme);
+    }
+    this.apply(theme);
+  },
+  init() {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('glow_theme') || 'system';
+    this.apply(saved);
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', async () => {
+        const cur = await this.getTheme();
+        if (cur === 'system') this.apply('system');
+      });
+    }
+  }
+};
+
+export const AutoLockManager = {
+  lastActivity: Date.now(),
+  locked: false,
+
+  init(router) {
+    this.router = router;
+    if (typeof window === 'undefined') return;
+    const updateActivity = () => {
+      this.lastActivity = Date.now();
+    };
+    ['pointerdown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+      window.addEventListener(evt, updateActivity, { passive: true });
+    });
+    setInterval(() => this.checkInactivity(), 5000);
+  },
+
+  async checkInactivity() {
+    if (this.locked || !AuthService.isAuthenticated() || typeof document === 'undefined') return;
+    const appLockEnabled = await PreferenceService.get('app_lock_enabled', false);
+    if (!appLockEnabled) return;
+
+    const duration = await PreferenceService.get('auto_lock_duration', 'Immediately');
+    let timeoutMs = 60000;
+    if (duration === 'Immediately') timeoutMs = 15000; // 15s inactivity threshold in browser session
+    else if (duration === '1 min') timeoutMs = 60000;
+    else if (duration === '5 min') timeoutMs = 300000;
+    else if (duration === '15 min') timeoutMs = 900000;
+
+    if (Date.now() - this.lastActivity >= timeoutMs) {
+      this.lockApp();
+    }
+  },
+
+  lockApp() {
+    this.locked = true;
+    const existing = document.getElementById('glow-lock-modal');
+    if (existing) return;
+
+    const modal = document.createElement('div');
+    modal.id = 'glow-lock-modal';
+    modal.className = 'fixed inset-0 z-50 bg-surface/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center';
+    modal.innerHTML = `
+      <div class="w-20 h-20 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container shadow-lg mb-4 animate-bounce">
+        <span class="material-symbols-outlined text-[36px]">lock</span>
+      </div>
+      <h2 class="font-headline-sm text-on-surface font-bold mb-1">GLOW UP Locked</h2>
+      <p class="font-body-md text-on-surface-variant max-w-xs mb-6">Your session was auto-locked due to inactivity.</p>
+      <button id="unlock-app-btn" class="w-full max-w-xs h-14 rounded-full bg-primary-container text-on-primary-fixed font-label-lg font-bold shadow-md hover:bg-secondary-fixed active:scale-95 transition-all">
+        Unlock Session
+      </button>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector('#unlock-app-btn').onclick = () => {
+      this.lastActivity = Date.now();
+      this.locked = false;
+      modal.remove();
+    };
+  }
+};
 
 const ROUTE_ALIASES = {
   'splash': 'splash',
@@ -119,6 +215,74 @@ const ROUTE_ALIASES = {
   'achievements': 'achievements'
 };
 
+export const ROOT_ROUTES = new Set([
+  'splash',
+  'welcome',
+  'login',
+  'register',
+  'create-account',
+  'profile-setup',
+  'home',
+  'daily',
+  'quick-add',
+  'progress',
+  'menu'
+]);
+
+export const PARENT_ROUTE_MAP = {
+  // Habits & Journal
+  'habit-detail': 'daily',
+  'habits': 'daily',
+  'journal': 'daily',
+  'journal-history': 'journal',
+  'weekly-review': 'progress',
+
+  // Goals
+  'goals': 'progress',
+  'goal-new': 'goals',
+  'goal-detail': 'goals',
+  'goal-stats': 'goals',
+
+  // Progress & Rewards
+  'habit-stats': 'progress',
+  'personal-stats': 'progress',
+  'rewards': 'progress',
+  'achievements': 'rewards',
+
+  // Money
+  'money': 'home',
+  'transactions': 'money',
+  'transaction-new': 'transactions',
+  'budget': 'money',
+  'financial-stats': 'money',
+
+  // Trading
+  'trading': 'home',
+  'trading-accounts': 'trading',
+  'trading-account-new': 'trading-accounts',
+  'trading-account-detail': 'trading-accounts',
+  'account-rules': 'trading-account-detail',
+  'trade-new': 'trading-account-detail',
+  'trade-open': 'trading',
+  'trade-history': 'trading',
+  'trading-stats': 'trading',
+  'trading-review': 'trading',
+  'trade-journal': 'trading',
+  'risk-calculator': 'trading',
+  'pre-trade-checklist': 'trading',
+  'trading-decision': 'trading',
+  'xauusd-setup': 'trading',
+
+  // Profile & Settings
+  'profile': 'menu',
+  'notifications': 'menu',
+  'security': 'menu',
+  'data-management': 'menu',
+  'backup': 'data-management',
+  'restore': 'data-management',
+  'reset-data': 'data-management'
+};
+
 export class AppRouter {
   constructor() {
     this.appContainer = document.getElementById('app');
@@ -127,6 +291,7 @@ export class AppRouter {
     this.menuDrawer = document.getElementById('menu-drawer');
     this.closeMenuBtn = document.getElementById('close-menu-btn');
     this.currentRoute = 'home';
+    this.navigationHistory = [];
     this.params = {};
     this.selectedAccountId = null;
 
@@ -421,6 +586,8 @@ export class AppRouter {
   }
 
   start() {
+    ThemeManager.init();
+    AutoLockManager.init(this);
     window.addEventListener('hashchange', () => this.handleRoute());
     AuthService.onAuthStateChange((event, user) => {
       if (event === 'SIGNED_OUT') {
@@ -444,6 +611,74 @@ export class AppRouter {
     return { route, param };
   }
 
+  handleBackNavigation(currentRoute = this.currentRoute) {
+    const logicalParent = PARENT_ROUTE_MAP[currentRoute];
+
+    // If we have prior in-app history in this session
+    if (this.navigationHistory && this.navigationHistory.length > 1) {
+      this.navigationHistory.pop(); // remove current route
+      const prev = this.navigationHistory.pop(); // pop previous so navigate can re-push
+      if (prev && prev !== currentRoute) {
+        this.navigate(prev);
+        return;
+      }
+    }
+
+    // Fallback: If no prior in-app history (e.g. page refresh, direct link), use logical parent
+    if (logicalParent) {
+      this.navigate(logicalParent);
+    } else if (typeof window !== 'undefined' && window.history.length > 1) {
+      window.history.back();
+    } else {
+      this.navigate('home');
+    }
+  }
+
+  applyStickyBackArrow(route) {
+    if (ROOT_ROUTES.has(route)) return;
+
+    const header = this.appContainer.querySelector('header');
+    if (!header) return;
+
+    // 1. Ensure header is sticky within the page so it remains accessible while scrolling
+    header.classList.add('sticky', 'top-0', 'z-40');
+
+    // 2. Check if an existing back button or back link exists inside the header
+    const existingBtn = header.querySelector(
+      '.page-back-btn, button[aria-label="Back"], button[aria-label="back"], button[aria-label="Go Back"], button[aria-label="Go back"], a[aria-label="Back"], a[aria-label="back"], a[aria-label="Go Back"], a[aria-label="Go back"]'
+    );
+
+    if (existingBtn) {
+      existingBtn.className = 'page-back-btn w-10 h-10 -ml-1 mr-2 rounded-full bg-surface-container-lowest/90 hover:bg-surface-container border border-outline-variant/30 shadow-xs flex items-center justify-center text-on-surface transition-all active:scale-95 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer';
+      existingBtn.setAttribute('aria-label', 'Go back');
+      if (!existingBtn.innerHTML.includes('arrow_back') && !existingBtn.innerHTML.includes('chevron_left')) {
+        existingBtn.innerHTML = '<span class="material-symbols-outlined text-[20px] leading-none select-none">arrow_back</span>';
+      }
+      existingBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.handleBackNavigation(route);
+      };
+      return;
+    }
+
+    // 3. If no back button exists in header, create and insert it at the top-left
+    const leftContainer = header.querySelector('.flex.items-center.justify-between > .flex.items-center, .flex.items-center') || header.firstElementChild;
+    if (leftContainer) {
+      const backBtn = document.createElement('button');
+      backBtn.type = 'button';
+      backBtn.className = 'page-back-btn w-10 h-10 -ml-1 mr-2 rounded-full bg-surface-container-lowest/90 hover:bg-surface-container border border-outline-variant/30 shadow-xs flex items-center justify-center text-on-surface transition-all active:scale-95 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer';
+      backBtn.setAttribute('aria-label', 'Go back');
+      backBtn.innerHTML = '<span class="material-symbols-outlined text-[20px] leading-none select-none">arrow_back</span>';
+      backBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.handleBackNavigation(route);
+      };
+      leftContainer.insertBefore(backBtn, leftContainer.firstChild);
+    }
+  }
+
   async handleRoute() {
     const { route, param } = this.parseHash();
 
@@ -459,6 +694,13 @@ export class AppRouter {
     if (isAuthed && (route === 'welcome' || route === 'login' || route === 'register')) {
       this.navigate('home');
       return;
+    }
+
+    // Maintain in-app navigation stack (avoid duplicate consecutive pushes)
+    if (!this.navigationHistory) this.navigationHistory = [];
+    if (this.navigationHistory[this.navigationHistory.length - 1] !== route) {
+      this.navigationHistory.push(route);
+      if (this.navigationHistory.length > 50) this.navigationHistory.shift();
     }
 
     this.currentRoute = route;
@@ -477,6 +719,9 @@ export class AppRouter {
     // Mount screen HTML
     this.appContainer.innerHTML = screen.html;
     window.scrollTo(0, 0);
+
+    // Apply Sticky Back Arrow for secondary screens
+    this.applyStickyBackArrow(route);
 
     // Bind common navigation links & bottom navigation
     this.bindNavigation();
@@ -510,19 +755,15 @@ export class AppRouter {
     });
 
     // 2. Wire all Back buttons and Cancel buttons
-    const backButtons = this.appContainer.querySelectorAll('button[aria-label="Back"], button[aria-label="back"], .back-btn, header button:first-child');
+    const backButtons = this.appContainer.querySelectorAll('button[aria-label="Back"], button[aria-label="back"], button[aria-label="Go Back"], button[aria-label="Go back"], .back-btn, header button:first-child');
     backButtons.forEach(btn => {
       const text = btn.innerText || '';
       const icon = btn.querySelector('.material-symbols-outlined')?.innerText || '';
       if (icon.includes('arrow_back') || icon.includes('chevron_left') || text.toLowerCase().includes('cancel') || text.toLowerCase().includes('back')) {
-        btn.addEventListener('click', (e) => {
+        btn.onclick = (e) => {
           e.preventDefault();
-          if (window.history.length > 1) {
-            window.history.back();
-          } else {
-            this.navigate('home');
-          }
-        });
+          this.handleBackNavigation(this.currentRoute);
+        };
       }
     });
 
@@ -1877,11 +2118,11 @@ export class AppRouter {
     });
 
     // Header Back & Search buttons
-    const backBtn = this.appContainer.querySelector('header a[aria-label="Back"], header button[aria-label="Back"]');
+    const backBtn = this.appContainer.querySelector('header a[aria-label="Back"], header button[aria-label="Back"], .page-back-btn');
     if (backBtn) {
       backBtn.onclick = (e) => {
         e.preventDefault();
-        history.back();
+        this.handleBackNavigation('habit-detail');
       };
     }
 
@@ -2234,8 +2475,8 @@ export class AppRouter {
     const { weekStart, weekEnd } = getCurrentWeek();
 
     // Wire back button
-    const backBtn = this.appContainer.querySelector('button[aria-label="Go back"], header a[aria-label="Back"]');
-    if (backBtn) backBtn.onclick = () => this.navigate('daily');
+    const backBtn = this.appContainer.querySelector('button[aria-label="Go back"], header a[aria-label="Back"], .page-back-btn');
+    if (backBtn) backBtn.onclick = () => this.handleBackNavigation('weekly-review');
 
     // Week selector display
     const weekLabel = this.appContainer.querySelector('.font-label-md.text-on-surface.font-semibold');
@@ -2541,11 +2782,11 @@ export class AppRouter {
     this.selectedGoalId = goal.id;
 
     // Back button
-    const backBtn = this.appContainer.querySelector('header a[aria-label="Back"], header button[aria-label="Back"]');
+    const backBtn = this.appContainer.querySelector('header a[aria-label="Back"], header button[aria-label="Back"], .page-back-btn');
     if (backBtn) {
       backBtn.onclick = (e) => {
         e.preventDefault();
-        this.navigate('goals');
+        this.handleBackNavigation('goal-detail');
       };
     }
 
@@ -2767,18 +3008,84 @@ export class AppRouter {
     const goals = await GoalService.getAll();
     const completed = goals.filter(g => g.status === 'COMPLETED').length;
     const active = goals.filter(g => g.status === 'ACTIVE').length;
-    const totalProgress = goals.length > 0 ? Math.round(goals.reduce((s, g) => s + (g.currentProgress || 0), 0) / goals.length) : 0;
+    const overallPct = goals.length > 0 ? Math.round(goals.reduce((s, g) => s + (g.currentProgress || 0), 0) / goals.length) : 0;
 
-    // Update stat elements if present
-    const headlineEls = this.appContainer.querySelectorAll('.font-headline-sm');
-    headlineEls.forEach(el => {
-      const text = el.innerText;
-      if (text.includes('Active') || text.includes('goal')) {
-        el.innerText = `${active} Active`;
+    // 1. Hero Card Overall Goal Completion Percentage
+    const displayEl = this.appContainer.querySelector('.font-display-lg');
+    if (displayEl) {
+      displayEl.innerText = `${overallPct}%`;
+    }
+
+    // Visual Milestone Circular Progress SVG
+    const progressCircle = this.appContainer.querySelector('circle.text-secondary');
+    if (progressCircle) {
+      const circ = 188.5;
+      progressCircle.style.strokeDashoffset = `${circ * (1 - overallPct / 100)}`;
+    }
+
+    // 2. 3-Column Quick Metrics: Active Goals, Completed, On Pace
+    const quickMetrics = this.appContainer.querySelectorAll('.grid.grid-cols-3 > div');
+    if (quickMetrics.length >= 3) {
+      const actEl = quickMetrics[0].querySelector('.font-headline-sm');
+      if (actEl) actEl.innerText = `${active} Flight`;
+
+      const compEl = quickMetrics[1].querySelector('.font-headline-sm');
+      if (compEl) compEl.innerText = `${completed} Total`;
+
+      const paceEl = quickMetrics[2].querySelector('.font-headline-sm');
+      if (paceEl) paceEl.innerText = goals.length > 0 ? `${overallPct}%` : '0%';
+    }
+
+    // 3. Category Breakdown Card
+    const catCard = this.appContainer.querySelector('.bg-surface-container-lowest.rounded-lg.p-5');
+    if (catCard) {
+      if (goals.length === 0) {
+        const catRows = catCard.querySelectorAll('.space-y-space-sm, .space-y-3, .space-y-4, div:has(> .flex.items-center.justify-between)');
+        const targetContainer = catRows[catRows.length - 1] || catCard;
+        targetContainer.innerHTML = `
+          <div class="py-8 px-4 text-center text-on-surface-variant flex flex-col items-center gap-2 border border-dashed border-outline-variant/40 rounded-2xl">
+            <div class="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center text-outline mb-1">
+              <span class="material-symbols-outlined text-[24px]">flag</span>
+            </div>
+            <h4 class="font-headline-sm text-on-surface font-semibold">No Goals Recorded Yet</h4>
+            <p class="font-body-sm text-on-surface-variant max-w-xs">Define your first milestone to track progress and category metrics.</p>
+            <button id="goal-stats-create-btn" class="mt-2 px-5 py-2.5 rounded-full bg-primary-container text-on-primary-fixed font-label-md font-bold shadow-sm hover:bg-secondary-fixed active:scale-95 transition-all">
+              Create Goal
+            </button>
+          </div>
+        `;
+        targetContainer.querySelector('#goal-stats-create-btn')?.addEventListener('click', () => this.navigate('goal-new'));
+      } else {
+        // Group by category and render genuine progress
+        const catGroups = {};
+        goals.forEach(g => {
+          const cat = g.category || 'General';
+          if (!catGroups[cat]) catGroups[cat] = { total: 0, sum: 0 };
+          catGroups[cat].total += 1;
+          catGroups[cat].sum += (g.currentProgress || 0);
+        });
+
+        const targetContainer = catCard.querySelector('.space-y-space-sm, .space-y-3, .space-y-4');
+        if (targetContainer) {
+          targetContainer.innerHTML = Object.entries(catGroups).map(([cat, val]) => {
+            const avg = Math.round(val.sum / val.total);
+            return `
+              <div class="space-y-1.5">
+                <div class="flex items-center justify-between font-label-md text-label-md">
+                  <span class="text-on-surface font-semibold">${cat}</span>
+                  <span class="text-secondary font-bold">${avg}%</span>
+                </div>
+                <div class="w-full h-2 rounded-full bg-surface-container overflow-hidden">
+                  <div class="h-full bg-secondary rounded-full transition-all duration-500" style="width: ${avg}%"></div>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
       }
-    });
+    }
 
-    // Wire navigation
+    // 4. Wire navigation buttons
     this.appContainer.querySelectorAll('button, a').forEach(btn => {
       const text = btn.innerText?.trim() || '';
       if (text.includes('New Goal') || text.includes('Create')) btn.onclick = () => this.navigate('goal-new');
@@ -2912,11 +3219,11 @@ export class AppRouter {
     const stats = await MoneyService.getFinancialStats();
 
     // Back button
-    const backBtn = this.appContainer.querySelector('button[aria-label="Go Back"], a[aria-label="Go Back"], header a[aria-label="Back"]');
+    const backBtn = this.appContainer.querySelector('button[aria-label="Go Back"], a[aria-label="Go Back"], button[aria-label="Go back"], a[aria-label="Go back"], header a[aria-label="Back"], .page-back-btn');
     if (backBtn) {
       backBtn.onclick = (e) => {
         e.preventDefault();
-        this.navigate('money');
+        this.handleBackNavigation('transactions');
       };
     }
 
@@ -3323,8 +3630,8 @@ export class AppRouter {
     const allAccounts = [...active, ...blown];
 
     // Wire Back button
-    const backBtn = this.appContainer.querySelector('header a[aria-label="Back"], button[aria-label="Go back"]');
-    if (backBtn) backBtn.onclick = () => this.navigate('trading');
+    const backBtn = this.appContainer.querySelector('header a[aria-label="Back"], button[aria-label="Go back"], .page-back-btn');
+    if (backBtn) backBtn.onclick = () => this.handleBackNavigation('trading-accounts');
 
     // Wire Add Account Button
     const addBtn = Array.from(this.appContainer.querySelectorAll('button, a')).find(b => b.innerText.includes('Add') || b.innerText.includes('New Account') || b.getAttribute('aria-label') === 'Add Account');
@@ -3950,8 +4257,8 @@ export class AppRouter {
     };
 
     // Wire back button
-    const backBtn = this.appContainer.querySelector('button[aria-label="Go back"], header a[aria-label="Back"]');
-    if (backBtn) backBtn.onclick = () => this.navigate('trading');
+    const backBtn = this.appContainer.querySelector('button[aria-label="Go back"], header a[aria-label="Back"], .page-back-btn');
+    if (backBtn) backBtn.onclick = () => this.handleBackNavigation('trade-history');
 
     // Update performance summary banner
     const totalTradesEl = this.appContainer.querySelector('.grid.grid-cols-3 > div:nth-child(1) .font-headline-md');
@@ -4181,20 +4488,48 @@ export class AppRouter {
   async hydrateTradingStats() {
     const accounts = await db.tradingAccounts.toArray();
     const account = (this.selectedAccountId ? accounts.find(a => a.id === this.selectedAccountId) : null) || accounts[0];
-    if (!account) return;
+
+    const displayEl = this.appContainer.querySelector('.font-display-lg');
+    const summaryEls = this.appContainer.querySelectorAll('.font-headline-sm.font-bold');
+
+    if (!account) {
+      if (displayEl) displayEl.innerText = '$0.00';
+      summaryEls.forEach(el => {
+        if (el.innerText === '14' || el.innerText.includes('trade')) el.innerText = '0';
+        else if (el.innerText.includes('71') || el.innerText.includes('%')) el.innerText = '0%';
+        else if (el.innerText.includes('3.84') || el.innerText.includes('PF')) el.innerText = '0.00';
+      });
+
+      const chartSection = this.appContainer.querySelector('section.bg-surface-container-lowest, div.bg-surface-container-lowest.rounded-lg');
+      if (chartSection) {
+        const emptyNotice = document.createElement('div');
+        emptyNotice.className = 'p-6 text-center text-on-surface-variant font-body-sm border border-dashed border-outline-variant/40 rounded-2xl my-4';
+        emptyNotice.innerHTML = `
+          <div class="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center text-outline mx-auto mb-2">
+            <span class="material-symbols-outlined text-[24px]">candlestick_chart</span>
+          </div>
+          <h4 class="font-headline-sm text-on-surface font-semibold">No Trading Accounts Configured</h4>
+          <p class="font-body-sm text-on-surface-variant mt-1 mb-4">Create a funded or evaluation account to begin tracking performance.</p>
+          <button id="trading-stats-empty-add-btn" class="px-5 py-2.5 rounded-full bg-primary-container text-on-primary-fixed font-label-md font-bold shadow-sm hover:bg-secondary-fixed active:scale-95 transition-all">
+            Add Account
+          </button>
+        `;
+        chartSection.replaceWith(emptyNotice);
+        emptyNotice.querySelector('#trading-stats-empty-add-btn')?.addEventListener('click', () => this.navigate('trading-account-new'));
+      }
+      return;
+    }
 
     const stats = await TradingEngine.getAccountStatistics(account.id);
     if (!stats) return;
 
     // Update hero card net profit
-    const displayEl = this.appContainer.querySelector('.font-display-lg');
     if (displayEl) {
       const netPL = stats.totalPL;
       displayEl.innerText = `${netPL >= 0 ? '+' : ''}$${netPL.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
     }
 
     // Update summary stats (total trades, win rate, profit factor)
-    const summaryEls = this.appContainer.querySelectorAll('.font-headline-sm.font-bold');
     summaryEls.forEach(el => {
       if (el.innerText === '14') el.innerText = `${stats.totalTrades}`;
       else if (el.innerText.includes('71')) el.innerText = `${stats.winRate}%`;
@@ -4202,8 +4537,8 @@ export class AppRouter {
     });
 
     // Wire navigation
-    const backBtn = this.appContainer.querySelector('button[aria-label="Go Back"]');
-    if (backBtn) backBtn.onclick = () => this.navigate('trading');
+    const backBtn = this.appContainer.querySelector('button[aria-label="Go Back"], button[aria-label="Go back"], .page-back-btn');
+    if (backBtn) backBtn.onclick = () => this.handleBackNavigation('trading-stats');
 
     // Wire download button
     const downloadBtn = Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.includes('Download') || b.innerText.includes('Export'));
@@ -4569,103 +4904,534 @@ export class AppRouter {
     });
 
     // Wire back button
-    const backBtn = this.appContainer.querySelector('button[aria-label="Go back"]');
-    if (backBtn) backBtn.onclick = () => this.navigate('rewards');
+    const backBtn = this.appContainer.querySelector('button[aria-label="Go back"], .page-back-btn');
+    if (backBtn) backBtn.onclick = () => this.handleBackNavigation('achievements');
+  }
+
+  openAppearanceModal() {
+    this.showModal({
+      title: 'Appearance Theme',
+      bodyHtml: `
+        <div class="flex flex-col gap-3 py-2">
+          <p class="font-body-sm text-on-surface-variant">Choose your preferred visual mode for GLOW UP.</p>
+          <div class="grid grid-cols-3 gap-2.5">
+            <button class="theme-choice-btn p-3 rounded-xl border border-outline-variant/30 flex flex-col items-center gap-1.5 hover:bg-surface-container active:scale-95 transition-all" data-theme="light">
+              <span class="material-symbols-outlined text-[26px] text-secondary">light_mode</span>
+              <span class="font-label-md font-semibold text-on-surface">Light</span>
+            </button>
+            <button class="theme-choice-btn p-3 rounded-xl border border-outline-variant/30 flex flex-col items-center gap-1.5 hover:bg-surface-container active:scale-95 transition-all" data-theme="dark">
+              <span class="material-symbols-outlined text-[26px] text-primary">dark_mode</span>
+              <span class="font-label-md font-semibold text-on-surface">Dark</span>
+            </button>
+            <button class="theme-choice-btn p-3 rounded-xl border border-outline-variant/30 flex flex-col items-center gap-1.5 hover:bg-surface-container active:scale-95 transition-all" data-theme="system">
+              <span class="material-symbols-outlined text-[26px] text-outline">settings_suggest</span>
+              <span class="font-label-md font-semibold text-on-surface">System</span>
+            </button>
+          </div>
+        </div>
+      `,
+      confirmText: 'Done',
+      onConfirm: () => true
+    });
+
+    const modal = document.getElementById('glow-modal');
+    if (modal) {
+      modal.querySelectorAll('.theme-choice-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const mode = btn.getAttribute('data-theme');
+          await ThemeManager.setTheme(mode);
+          this.showToast(`${mode.charAt(0).toUpperCase() + mode.slice(1)} theme applied!`);
+          const label = document.getElementById('appearance-current-label');
+          if (label) label.innerText = `${mode} theme`;
+          modal.remove();
+        };
+      });
+    }
   }
 
   async hydrateSettingsDashboard() {
+    const currentUser = AuthService.getCurrentUser();
+    const profile = await UserService.getProfile();
+    const habits = await HabitService.getAll(false, false);
+    let bestStreak = 0;
+    for (const h of habits) {
+      const s = await HabitService.getStreaks(h.id);
+      if (s.currentStreak > bestStreak) bestStreak = s.currentStreak;
+    }
+
+    const userName = profile?.name || currentUser?.user_metadata?.name || 'Account';
+    const userEmail = profile?.email || currentUser?.email || '';
+
+    // Update Profile Header Card
+    const nameEl = this.appContainer.querySelector('h2.font-headline-sm.text-headline-sm.text-on-surface.truncate');
+    if (nameEl) nameEl.innerText = userName;
+
+    const subEl = this.appContainer.querySelector('p.font-body-sm.text-body-sm.text-on-surface-variant.truncate');
+    if (subEl) subEl.innerText = userEmail ? `${userEmail} • Active Member` : 'Personal Growth & Capital Discipline';
+
+    const avatarInitial = this.appContainer.querySelector('.relative.w-14.h-14 span.font-headline-sm');
+    if (avatarInitial) {
+      const initials = userName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'GU';
+      avatarInitial.innerText = initials;
+    }
+
+    const streakText = Array.from(this.appContainer.querySelectorAll('.font-body-sm')).find(s => s.innerText.includes('Streak:'));
+    if (streakText) {
+      streakText.innerText = `Streak: ${bestStreak} Days Alive`;
+    }
+
+    // View Profile Pill
+    const viewProfileBtn = Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.includes('View Profile'));
+    if (viewProfileBtn) viewProfileBtn.onclick = () => this.navigate('profile');
+
+    // Cloud Backup Toggle
+    const backupToggle = this.appContainer.querySelector('#toggle-backup');
+    let autoCloudBackup = await PreferenceService.get('cloud_auto_backup', true);
+    const updateBackupUI = () => {
+      if (!backupToggle) return;
+      const thumb = backupToggle.querySelector('#toggle-thumb');
+      if (autoCloudBackup) {
+        backupToggle.className = 'w-12 h-7 bg-primary-container rounded-full p-0.5 flex items-center transition-colors focus:outline-none flex-shrink-0';
+        if (thumb) thumb.className = 'w-6 h-6 rounded-full bg-primary shadow-sm transform translate-x-5 transition-transform';
+      } else {
+        backupToggle.className = 'w-12 h-7 bg-surface-container-highest rounded-full p-0.5 flex items-center transition-colors focus:outline-none flex-shrink-0';
+        if (thumb) thumb.className = 'w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm transform translate-x-0 transition-transform';
+      }
+    };
+    updateBackupUI();
+
+    if (backupToggle) {
+      backupToggle.onclick = async (e) => {
+        e.preventDefault();
+        autoCloudBackup = !autoCloudBackup;
+        updateBackupUI();
+        await PreferenceService.set('cloud_auto_backup', autoCloudBackup);
+        this.showToast(autoCloudBackup ? 'Cloud auto-backup enabled' : 'Cloud auto-backup disabled');
+      };
+    }
+
+    // Ensure Appearance option is present in settings menu
+    const accountList = this.appContainer.querySelector('section .w-full.bg-surface-container-lowest.rounded-lg.shadow-sm');
+    if (accountList && !this.appContainer.querySelector('#menu-appearance-btn')) {
+      const appearanceBtn = document.createElement('button');
+      appearanceBtn.id = 'menu-appearance-btn';
+      appearanceBtn.className = 'w-full min-h-[54px] px-margin py-space-sm flex items-center justify-between text-left hover:bg-surface-container-low active:scale-[0.99] transition-all border-t border-surface-container';
+      const curTheme = await ThemeManager.getTheme();
+      appearanceBtn.innerHTML = `
+        <div class="flex items-center gap-space-md min-w-0 pr-2">
+          <div class="w-9 h-9 rounded-full bg-surface-container-low flex items-center justify-center text-on-surface-variant flex-shrink-0">
+            <span class="material-symbols-outlined text-[20px]">palette</span>
+          </div>
+          <div class="flex flex-col min-w-0">
+            <span class="font-label-md text-label-md text-on-surface truncate">Appearance</span>
+            <span class="font-body-sm text-body-sm text-on-surface-variant truncate capitalize" id="appearance-current-label">${curTheme} theme</span>
+          </div>
+        </div>
+        <span class="material-symbols-outlined text-outline text-[20px] flex-shrink-0">chevron_right</span>
+      `;
+      appearanceBtn.onclick = (e) => {
+        e.preventDefault();
+        this.openAppearanceModal();
+      };
+      accountList.appendChild(appearanceBtn);
+    }
+
+    // Wire Navigation Items
     this.appContainer.querySelectorAll('button, a').forEach(btn => {
       const text = btn.innerText?.trim() || '';
       if (text.includes('Profile')) btn.onclick = () => this.navigate('profile');
       else if (text.includes('Notifications')) btn.onclick = () => this.navigate('notifications');
       else if (text.includes('Security')) btn.onclick = () => this.navigate('security');
       else if (text.includes('Data Management')) btn.onclick = () => this.navigate('data-management');
-      else if (text.includes('Backup')) btn.onclick = () => this.navigate('backup');
       else if (text.includes('Restore')) btn.onclick = () => this.navigate('restore');
-      else if (text.includes('Reset')) btn.onclick = () => this.navigate('reset-data');
+      else if (text.includes('Reset Data')) btn.onclick = () => this.navigate('reset-data');
+      else if (text.includes('Trading Dashboard')) btn.onclick = () => this.navigate('trading');
+      else if (text.includes('Log Out') || text.includes('Sign Out')) {
+        btn.onclick = async (e) => {
+          e.preventDefault();
+          await AuthService.signOut();
+          setActiveUserId('default_user');
+          this.showToast('Signed out successfully');
+          this.navigate('welcome');
+        };
+      }
     });
   }
 
   async hydrateProfile() {
     const currentUser = AuthService.getCurrentUser();
-    let user = await db.users.filter(u => matchesActiveUser(u)).first();
-    if (!user) {
-      user = await db.users.get(1) || { name: currentUser?.user_metadata?.name || 'Alex Lawson', email: currentUser?.email || 'alex@glowup.io' };
+    let profile = await UserService.getProfile();
+    const habits = await HabitService.getAll(false, false);
+    let bestStreak = 0;
+    for (const h of habits) {
+      const s = await HabitService.getStreaks(h.id);
+      if (s.currentStreak > bestStreak) bestStreak = s.currentStreak;
     }
 
-    // Populate form fields with stored user data
-    const inputs = this.appContainer.querySelectorAll('input[type="text"], input[type="email"]');
-    inputs.forEach(input => {
-      if (input.value.includes('Alex Lawson') || input.placeholder?.includes('Name') || input.previousElementSibling?.innerText?.includes('Name')) {
-        input.value = user.name || currentUser?.user_metadata?.name || 'Alex Lawson';
-      } else if (input.value.includes('@') || input.placeholder?.includes('email') || input.previousElementSibling?.innerText?.includes('Email')) {
-        input.value = user.email || currentUser?.email || 'alex@glowup.io';
-      }
-    });
+    // Avatar image
+    const avatarImg = this.appContainer.querySelector('section img[src*="hero_illustration"], section img[data-alt*="portrait"]');
+    if (avatarImg && profile?.avatarUrl) {
+      avatarImg.src = profile.avatarUrl;
+    }
 
-    // Save button
-    const saveBtn = this.appContainer.querySelector('#saveButton') ||
-      Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.includes('Save'));
-    if (saveBtn) {
-      saveBtn.onclick = async (e) => {
+    // Change Photo button
+    const changePhotoBtn = Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.includes('Change Photo'));
+    let pendingAvatarUrl = profile?.avatarUrl || '';
+    if (changePhotoBtn) {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*';
+      fileInput.style.display = 'none';
+      document.body.appendChild(fileInput);
+
+      changePhotoBtn.onclick = (e) => {
         e.preventDefault();
-        const nameInput = this.appContainer.querySelector('input[value*="Alex"], input:first-of-type');
-        const emailInput = this.appContainer.querySelector('input[type="email"], input[value*="@"]');
-        const intentionTextarea = this.appContainer.querySelector('textarea');
+        fileInput.click();
+      };
 
-        const newName = nameInput?.value?.trim() || user.name;
-        const newEmail = emailInput?.value?.trim() || user.email;
-
-        await AuthService.updateProfile({ name: newName });
-        if (user.id) {
-          await db.users.update(user.id, {
-            name: newName,
-            email: newEmail,
-            profileInfo: intentionTextarea?.value?.trim() || user.profileInfo,
-            updatedAt: new Date().toISOString()
-          });
+      fileInput.onchange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (loadEvt) => {
+            pendingAvatarUrl = loadEvt.target.result;
+            if (avatarImg) avatarImg.src = pendingAvatarUrl;
+            this.showToast('Profile photo selected! Tap Save Changes to persist.');
+          };
+          reader.readAsDataURL(file);
         }
-
-        this.showToast('Profile saved!');
       };
     }
 
-    // Sign out button
-    const signOutBtn = Array.from(this.appContainer.querySelectorAll('button')).find(b =>
-      b.innerText.includes('Sign Out') || b.innerText.includes('Log Out') || b.innerText.includes('Logout')
-    );
-    if (signOutBtn) {
-      signOutBtn.onclick = async (e) => {
+    // Update Streak / Level card
+    const streakEl = Array.from(this.appContainer.querySelectorAll('p')).find(p => p.innerText.includes('Streak') && p.classList.contains('font-headline-sm'));
+    if (streakEl) {
+      streakEl.innerText = `${bestStreak} Day Streak`;
+    }
+
+    // Inputs
+    const allInputs = Array.from(this.appContainer.querySelectorAll('input'));
+    const nameInput = allInputs.find(i => i.value === 'Alex Lawson' || i.previousElementSibling?.innerText?.includes('Full Name'));
+    const usernameInput = allInputs.find(i => i.value === '@alexlawson' || i.previousElementSibling?.innerText?.includes('Username'));
+    const emailInput = allInputs.find(i => i.type === 'email' || i.previousElementSibling?.innerText?.includes('Email'));
+    const dobInput = allInputs.find(i => i.value.includes('1996') || i.previousElementSibling?.innerText?.includes('Birth'));
+    const intentionTextarea = this.appContainer.querySelector('textarea');
+
+    if (nameInput) nameInput.value = profile?.name !== undefined ? profile.name : (currentUser?.user_metadata?.name || '');
+    if (usernameInput) usernameInput.value = profile?.username !== undefined ? profile.username : (currentUser?.user_metadata?.username || '');
+    if (emailInput) emailInput.value = profile?.email !== undefined ? profile.email : (currentUser?.email || '');
+    if (dobInput) dobInput.value = profile?.dob !== undefined ? profile.dob : (currentUser?.user_metadata?.dob || '');
+    if (intentionTextarea) intentionTextarea.value = profile?.intention !== undefined ? profile.intention : (currentUser?.user_metadata?.intention || '');
+
+    // Focus Chips
+    let selectedFocus = profile?.primaryFocus || currentUser?.user_metadata?.primaryFocus || 'Personal';
+    const focusChips = this.appContainer.querySelectorAll('.focus-chip');
+    const updateFocusChips = () => {
+      focusChips.forEach(chip => {
+        const val = chip.getAttribute('data-val');
+        if (val === selectedFocus) {
+          chip.className = 'focus-chip active-chip px-3.5 py-2 rounded-full font-label-md text-label-md font-semibold bg-secondary-container text-on-secondary-container transition-all active:scale-95 shadow-sm';
+        } else {
+          chip.className = 'focus-chip px-3.5 py-2 rounded-full font-label-md text-label-md font-semibold bg-surface-container text-on-surface-variant transition-all active:scale-95';
+        }
+      });
+    };
+    updateFocusChips();
+
+    focusChips.forEach(chip => {
+      chip.onclick = (e) => {
         e.preventDefault();
-        await AuthService.signOut();
-        setActiveUserId('default_user');
-        this.showToast('Signed out successfully');
-        this.navigate('welcome');
+        selectedFocus = chip.getAttribute('data-val') || 'Personal';
+        updateFocusChips();
+      };
+    });
+
+    // Daily Affirmation Ping toggle
+    const toggleAffirmation = this.appContainer.querySelector('#toggleAffirmation');
+    let isAffirmationActive = await PreferenceService.get('daily_affirmation_ping', true);
+    const updateAffirmationUI = () => {
+      if (!toggleAffirmation) return;
+      if (isAffirmationActive) {
+        toggleAffirmation.className = 'w-12 h-7 rounded-full bg-primary-container p-1 flex items-center justify-end transition-colors';
+        toggleAffirmation.innerHTML = '<span class="w-5 h-5 rounded-full bg-primary shadow-sm block"></span>';
+      } else {
+        toggleAffirmation.className = 'w-12 h-7 rounded-full bg-surface-container-highest p-1 flex items-center justify-start transition-colors';
+        toggleAffirmation.innerHTML = '<span class="w-5 h-5 rounded-full bg-surface-container-lowest shadow-sm block"></span>';
+      }
+    };
+    updateAffirmationUI();
+
+    if (toggleAffirmation) {
+      toggleAffirmation.onclick = async (e) => {
+        e.preventDefault();
+        isAffirmationActive = !isAffirmationActive;
+        updateAffirmationUI();
+        await PreferenceService.set('daily_affirmation_ping', isAffirmationActive);
+        this.showToast(isAffirmationActive ? 'Affirmation ping enabled' : 'Affirmation ping disabled');
+      };
+    }
+
+    // Save button
+    const saveBtn = this.appContainer.querySelector('#saveButton') ||
+      Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.includes('Save Changes'));
+    if (saveBtn) {
+      saveBtn.onclick = async (e) => {
+        e.preventDefault();
+        const updatedData = {
+          name: nameInput?.value?.trim() || '',
+          username: usernameInput?.value?.trim() || '',
+          email: emailInput?.value?.trim() || '',
+          dob: dobInput?.value?.trim() || '',
+          intention: intentionTextarea?.value?.trim() || '',
+          primaryFocus: selectedFocus,
+          avatarUrl: pendingAvatarUrl
+        };
+
+        await UserService.saveProfile(updatedData);
+        await AuthService.updateProfile(updatedData);
+        this.showToast('Profile saved successfully!');
+      };
+    }
+
+    // Cancel button
+    const cancelBtn = Array.from(this.appContainer.querySelectorAll('button')).find(b => b.innerText.trim() === 'Cancel');
+    if (cancelBtn) {
+      cancelBtn.onclick = (e) => {
+        e.preventDefault();
+        this.hydrateProfile();
+        this.showToast('Unsaved changes discarded');
       };
     }
   }
 
   async hydrateNotifications() {
-    // Wire toggle switches for notification preferences
-    this.appContainer.querySelectorAll('button[role="switch"], .toggle-btn').forEach(toggle => {
-      toggle.addEventListener('click', (e) => {
+    const prefs = await PreferenceService.getAll();
+
+    // Map notification switches to their specific keys
+    const switches = this.appContainer.querySelectorAll('button[role="switch"], .toggle-btn');
+    switches.forEach(sw => {
+      const row = sw.closest('div.flex.items-center.justify-between');
+      const label = row?.querySelector('h2')?.innerText?.trim() || 'notification';
+      const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+
+      // Default true for reminders, false for transaction recap
+      let isEnabled = prefs[key];
+      if (isEnabled === undefined) {
+        isEnabled = !label.toLowerCase().includes('transaction');
+      }
+
+      const updateSwitchUI = (enabled) => {
+        sw.setAttribute('aria-checked', enabled ? 'true' : 'false');
+        if (enabled) {
+          sw.className = 'toggle-btn w-[52px] h-[30px] rounded-full p-1 bg-primary-container flex items-center justify-end shrink-0 transition-colors duration-200';
+          const knob = sw.querySelector('span');
+          if (knob) knob.className = 'w-[22px] h-[22px] rounded-full bg-on-primary-container shadow-sm transform transition-transform duration-200';
+        } else {
+          sw.className = 'toggle-btn w-[52px] h-[30px] rounded-full p-1 bg-surface-container-highest flex items-center justify-start shrink-0 transition-colors duration-200';
+          const knob = sw.querySelector('span');
+          if (knob) knob.className = 'w-[22px] h-[22px] rounded-full bg-surface-container-lowest shadow-sm transform transition-transform duration-200';
+        }
+      };
+      updateSwitchUI(isEnabled);
+
+      sw.onclick = async (e) => {
         e.preventDefault();
-        const isChecked = toggle.getAttribute('aria-checked') === 'true';
-        toggle.setAttribute('aria-checked', (!isChecked).toString());
-        this.showToast(isChecked ? 'Notification disabled' : 'Notification enabled');
-      });
+        const nextState = !(sw.getAttribute('aria-checked') === 'true');
+
+        if (nextState && typeof window !== 'undefined' && 'Notification' in window) {
+          if (Notification.permission === 'default') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+              this.showToast('Notifications disabled in browser permissions.');
+              updateSwitchUI(false);
+              await PreferenceService.set(key, false);
+              return;
+            }
+          } else if (Notification.permission === 'denied') {
+            this.showToast('Browser notifications blocked in site permissions.');
+            updateSwitchUI(false);
+            await PreferenceService.set(key, false);
+            return;
+          }
+        }
+
+        updateSwitchUI(nextState);
+        await PreferenceService.set(key, nextState);
+        this.showToast(nextState ? `${label} enabled` : `${label} disabled`);
+      };
     });
+
+    // Save Preferences button
+    const saveBtn = this.appContainer.querySelector('#save-btn');
+    if (saveBtn) {
+      saveBtn.onclick = async (e) => {
+        e.preventDefault();
+        this.showToast('Notification preferences saved!');
+
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          try {
+            new Notification('GLOW UP Reminders Active', {
+              body: 'Your daily momentum reminders are configured and active.',
+              icon: '/assets/hero_illustration.png'
+            });
+          } catch (notifErr) {
+            // ignore
+          }
+        }
+      };
+    }
   }
 
   async hydrateSecurity() {
-    // Wire toggle switches for security preferences
-    this.appContainer.querySelectorAll('button[role="switch"], .toggle-btn').forEach(toggle => {
-      toggle.addEventListener('click', (e) => {
+    // 1. Check WebAuthn platform authenticator capability
+    const biometricToggle = this.appContainer.querySelector('#biometric-toggle');
+    const biometricKnob = this.appContainer.querySelector('#biometric-knob');
+    const biometricSubtext = biometricToggle?.closest('.flex.items-center.justify-between')?.querySelector('.font-body-sm');
+
+    let webAuthnAvailable = false;
+    if (typeof window !== 'undefined' && window.PublicKeyCredential) {
+      try {
+        webAuthnAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      } catch {
+        webAuthnAvailable = false;
+      }
+    }
+
+    let biometricEnabled = await PreferenceService.get('biometric_lock', false);
+    const updateBiometricUI = (enabled) => {
+      if (!biometricToggle) return;
+      if (!webAuthnAvailable) {
+        biometricToggle.setAttribute('aria-checked', 'false');
+        biometricToggle.className = 'w-13 h-7 px-0.5 rounded-full bg-surface-container-highest flex items-center opacity-60 cursor-not-allowed';
+        if (biometricKnob) biometricKnob.className = 'w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm translate-x-0 transition-transform flex items-center justify-center';
+        if (biometricSubtext) biometricSubtext.innerText = 'Platform authenticator unavailable on this device/browser';
+        return;
+      }
+
+      biometricToggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+      if (enabled) {
+        biometricToggle.className = 'w-13 h-7 px-0.5 rounded-full bg-primary flex items-center transition-colors';
+        if (biometricKnob) biometricKnob.className = 'w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm translate-x-6 transition-transform flex items-center justify-center';
+      } else {
+        biometricToggle.className = 'w-13 h-7 px-0.5 rounded-full bg-surface-container-highest flex items-center transition-colors';
+        if (biometricKnob) biometricKnob.className = 'w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm translate-x-0 transition-transform flex items-center justify-center';
+      }
+    };
+    updateBiometricUI(biometricEnabled);
+
+    if (biometricToggle) {
+      biometricToggle.onclick = async (e) => {
         e.preventDefault();
-        const isChecked = toggle.getAttribute('aria-checked') === 'true';
-        toggle.setAttribute('aria-checked', (!isChecked).toString());
-        this.showToast(isChecked ? 'Setting disabled' : 'Setting enabled');
+        if (!webAuthnAvailable) {
+          this.showToast('WebAuthn biometrics unsupported on this browser/platform');
+          return;
+        }
+        biometricEnabled = !biometricEnabled;
+        updateBiometricUI(biometricEnabled);
+        await PreferenceService.set('biometric_lock', biometricEnabled);
+        this.showToast(biometricEnabled ? 'Biometric authentication enabled' : 'Biometric authentication disabled');
+      };
+    }
+
+    // 2. App Lock Toggle
+    const applockToggle = this.appContainer.querySelector('#applock-toggle');
+    const applockKnob = this.appContainer.querySelector('#applock-knob');
+    let appLockEnabled = await PreferenceService.get('app_lock_enabled', false);
+
+    const updateAppLockUI = (enabled) => {
+      if (!applockToggle) return;
+      applockToggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+      if (enabled) {
+        applockToggle.className = 'w-13 h-7 px-0.5 rounded-full bg-primary flex items-center transition-colors';
+        if (applockKnob) applockKnob.className = 'w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm translate-x-6 transition-transform flex items-center justify-center';
+      } else {
+        applockToggle.className = 'w-13 h-7 px-0.5 rounded-full bg-surface-container-highest flex items-center transition-colors';
+        if (applockKnob) applockKnob.className = 'w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm translate-x-0 transition-transform flex items-center justify-center';
+      }
+    };
+    updateAppLockUI(appLockEnabled);
+
+    if (applockToggle) {
+      applockToggle.onclick = async (e) => {
+        e.preventDefault();
+        appLockEnabled = !appLockEnabled;
+        updateAppLockUI(appLockEnabled);
+        await PreferenceService.set('app_lock_enabled', appLockEnabled);
+        this.showToast(appLockEnabled ? 'App lock enabled' : 'App lock disabled');
+      };
+    }
+
+    // 3. Auto-Lock Duration Pills
+    let selectedDuration = await PreferenceService.get('auto_lock_duration', 'Immediately');
+    const durationLabel = this.appContainer.querySelector('#selected-duration-label');
+    const durationPills = this.appContainer.querySelectorAll('.duration-pill');
+
+    const updateDurationUI = () => {
+      if (durationLabel) {
+        durationLabel.innerText = selectedDuration === 'Immediately' ? 'Immediately' : `After ${selectedDuration}`;
+      }
+      durationPills.forEach(pill => {
+        const val = pill.getAttribute('data-val');
+        if (val === selectedDuration) {
+          pill.className = 'duration-pill py-2 rounded-xl font-label-sm text-label-sm font-semibold bg-primary-container text-on-primary-container shadow-sm transition-all text-center';
+        } else {
+          pill.className = 'duration-pill py-2 rounded-xl font-label-sm text-label-sm text-on-surface-variant transition-all text-center';
+        }
       });
+    };
+    updateDurationUI();
+
+    durationPills.forEach(pill => {
+      pill.onclick = async (e) => {
+        e.preventDefault();
+        selectedDuration = pill.getAttribute('data-val') || 'Immediately';
+        updateDurationUI();
+        await PreferenceService.set('auto_lock_duration', selectedDuration);
+        this.showToast(`Auto-lock set to ${selectedDuration}`);
+      };
+    });
+
+    // 4. Remove fake devices and show genuine active session info
+    const macbookSession = this.appContainer.querySelector('#session-macbook');
+    if (macbookSession) {
+      macbookSession.remove();
+    }
+
+    const deviceTitle = this.appContainer.querySelector('.font-label-md.text-on-surface.font-semibold.truncate');
+    if (deviceTitle && typeof navigator !== 'undefined') {
+      const ua = navigator.userAgent;
+      let devName = 'Current Browser';
+      if (/iPhone/i.test(ua)) devName = 'Apple iPhone';
+      else if (/iPad/i.test(ua)) devName = 'Apple iPad';
+      else if (/Android/i.test(ua)) devName = 'Android Device';
+      else if (/Macintosh/i.test(ua)) devName = 'Mac Desktop';
+      else if (/Windows/i.test(ua)) devName = 'Windows PC';
+      else if (/Linux/i.test(ua)) devName = 'Linux Device';
+      deviceTitle.innerText = devName;
+    }
+
+    const deviceLocation = this.appContainer.querySelector('.font-body-sm.text-on-surface-variant.mt-0\\.5');
+    if (deviceLocation && deviceLocation.innerText.includes('San Francisco')) {
+      deviceLocation.innerText = 'Current Device Session';
+    }
+
+    const sessionCountBadge = Array.from(this.appContainer.querySelectorAll('span')).find(s => s.innerText.includes('Connected'));
+    if (sessionCountBadge) {
+      sessionCountBadge.innerText = '1 Connected';
+    }
+
+    // 5. Sign Out Buttons
+    this.appContainer.querySelectorAll('button').forEach(btn => {
+      const text = btn.innerText?.trim() || '';
+      if (text.includes('Sign Out') || text.includes('Log Out')) {
+        btn.onclick = async (e) => {
+          e.preventDefault();
+          await AuthService.signOut();
+          setActiveUserId('default_user');
+          this.showToast('Signed out successfully');
+          this.navigate('welcome');
+        };
+      }
     });
   }
 
