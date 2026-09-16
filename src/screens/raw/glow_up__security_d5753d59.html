@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100%;min-height:100%;margin:0;padding:0;}body{overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;font-family:'Inter',sans-serif;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: 'class', theme: { extend: { 'colors': { 'on-primary-fixed-variant': '#384e0d', 'on-secondary': '#ffffff', 'primary-container': '#d6f3a1', 'on-tertiary-fixed': '#131f03', 'surface-variant': '#e5e2e1', 'on-tertiary': '#ffffff', 'inverse-on-surface': '#f3f0ef', 'primary-fixed': '#d0ed9c', 'on-secondary-container': '#437000', 'surface-container-highest': '#e5e2e1', 'on-surface-variant': '#45483c', 'inverse-primary': '#b4d082', 'tertiary-fixed-dim': '#bccd9f', 'secondary-container': '#b9f474', 'error-container': '#ffdad6', 'tertiary-fixed': '#d8e9ba', 'primary-fixed-dim': '#b4d082', 'inverse-surface': '#313030', 'secondary': '#3e6a00', 'outline': '#75796a', 'surface': '#fcf9f8', 'on-surface': '#1c1b1b', 'secondary-fixed': '#b9f474', 'on-tertiary-fixed-variant': '#3e4b29', 'surface-container': '#f0edec', 'on-primary': '#ffffff', 'outline-variant': '#c5c8b8', 'tertiary': '#55633e', 'secondary-fixed-dim': '#9ed75b', 'on-tertiary-container': '#5e6d47', 'surface-bright': '#fcf9f8', 'on-primary-fixed': '#131f00', 'error': '#ba1a1a', 'surface-container-lowest': '#ffffff', 'on-background': '#1c1b1b', 'surface-tint': '#4e6624', 'on-secondary-fixed-variant': '#2e4f00', 'on-error': '#ffffff', 'on-error-container': '#93000a', 'tertiary-container': '#deefc0', 'surface-dim': '#dcd9d9', 'surface-container-high': '#ebe7e7', 'surface-container-low': '#f6f3f2', 'background': '#fcf9f8', 'on-secondary-fixed': '#0f2000', 'on-primary-container': '#58702d', 'primary': '#4e6624' }, 'borderRadius': { 'DEFAULT': '1rem', 'lg': '2rem', 'xl': '3rem', 'full': '9999px' }, 'spacing': { 'space-xl': '2rem', 'space-xs': '0.25rem', 'margin': '1.25rem', 'gutter': '1rem', 'space-lg': '1.5rem', 'space-sm': '0.5rem', 'space-md': '1rem' }, 'fontFamily': { 'body-md': ['Inter'], 'label-md': ['Inter'], 'headline-lg-mobile': ['Inter'], 'body-sm': ['Inter'], 'headline-lg': ['Inter'], 'headline-md': ['Inter'], 'body-lg': ['Inter'], 'label-lg': ['Inter'], 'display-lg': ['Inter'], 'headline-sm': ['Inter'], 'label-sm': ['Inter'] }, 'fontSize': { 'body-md': ['14px', {'lineHeight': '20px', 'letterSpacing': '0em', 'fontWeight': '400'}], 'label-md': ['14px', {'lineHeight': '18px', 'letterSpacing': '0em', 'fontWeight': '600'}], 'headline-lg-mobile': ['26px', {'lineHeight': '32px', 'letterSpacing': '-0.02em', 'fontWeight': '700'}], 'body-sm': ['12px', {'lineHeight': '16px', 'letterSpacing': '0.01em', 'fontWeight': '400'}], 'headline-lg': ['32px', {'lineHeight': '40px', 'letterSpacing': '-0.025em', 'fontWeight': '700'}], 'headline-md': ['22px', {'lineHeight': '28px', 'letterSpacing': '-0.015em', 'fontWeight': '600'}], 'body-lg': ['16px', {'lineHeight': '24px', 'letterSpacing': '-0.01em', 'fontWeight': '400'}], 'label-lg': ['16px', {'lineHeight': '20px', 'letterSpacing': '-0.01em', 'fontWeight': '600'}], 'display-lg': ['40px', {'lineHeight': '48px', 'letterSpacing': '-0.03em', 'fontWeight': '800'}], 'headline-sm': ['18px', {'lineHeight': '24px', 'letterSpacing': '-0.01em', 'fontWeight': '600'}], 'label-sm': ['11px', {'lineHeight': '14px', 'letterSpacing': '0.04em', 'fontWeight': '600'}] } } } };</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface text-on-surface antialiased flex flex-col min-h-screen"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="h-16 px-margin flex items-center justify-between"><div class="flex items-center gap-space-sm"><a aria-label="Go back" class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container active:scale-95 transition-all" href="#" onclick="window.history.back(); return false;"><span class="material-symbols-outlined text-[24px]">arrow_back_ios_new</span></a><h1 class="font-headline-sm text-headline-sm text-on-surface font-semibold">Security</h1></div><div class="flex items-center gap-space-xs"><div class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary-container/70 border border-outline-variant/30"><span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span><span class="font-label-sm text-label-sm text-on-primary-container tracking-wider uppercase font-semibold">GLOW</span></div></div></div></header><main class="flex-1 flex flex-col relative w-full pt-16 pb-safe bg-surface"><div class="flex flex-col w-full pb-10">
+<div class="px-margin flex flex-col gap-6">
+<!-- Visual Identity / Ambient Protection Banner -->
+<div class="relative overflow-hidden rounded-2xl bg-surface-container-lowest shadow-[0_4px_20px_-2px_rgba(17,17,17,0.03)] p-space-md flex items-center gap-4">
+<div class="relative w-14 h-14 rounded-2xl bg-primary-container flex items-center justify-center shrink-0">
+<svg class="w-9 h-9" fill="none" viewbox="0 0 100 100">
+<circle cx="50" cy="50" r="38" stroke="#3e6a00" stroke-dasharray="190 60" stroke-linecap="round" stroke-width="12" transform="rotate(-45 50 50)"></circle>
+<path d="M42 52L52 52L68 34" stroke="#3e6a00" stroke-linecap="round" stroke-linejoin="round" stroke-width="10"></path>
+<path d="M56 34H68V46" stroke="#3e6a00" stroke-linecap="round" stroke-linejoin="round" stroke-width="10"></path>
+</svg>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1.5">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight">GLOW UP</span>
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-label-sm text-label-sm font-semibold">SECURE</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">Biometric security layer &amp; data vault active</p>
+</div>
+<div class="w-2.5 h-2.5 rounded-full bg-secondary animate-pulse shrink-0"></div>
+</div>
+<!-- Account Security Summary Hero Card -->
+<div class="relative overflow-hidden rounded-2xl bg-primary-container p-6 text-on-primary-container shadow-sm">
+<div class="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-primary/10 blur-xl pointer-events-none"></div>
+<div class="flex items-start gap-4">
+<div class="w-12 h-12 rounded-full bg-surface-container-lowest/80 backdrop-blur-sm flex items-center justify-center text-primary shadow-sm shrink-0">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+</div>
+<div class="flex flex-col gap-1 min-w-0 flex-1">
+<div class="flex items-center gap-2">
+<h2 class="font-headline-sm text-headline-sm text-on-surface font-bold">Account Protected</h2>
+<span class="material-symbols-outlined text-[18px] text-primary" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant leading-relaxed">
+            Two-factor authentication &amp; biometrics enabled. Last security review: Oct 20, 2024.
+          </p>
+<div class="mt-2 flex items-center gap-2">
+<span class="px-2.5 py-1 rounded-full bg-surface-container-lowest/70 text-on-surface font-label-sm text-label-sm font-semibold inline-flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span> 2FA Shield Active
+            </span>
+<span class="px-2.5 py-1 rounded-full bg-surface-container-lowest/70 text-on-surface font-label-sm text-label-sm font-semibold">
+              AES-256
+            </span>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 1: Authentication & Access -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between px-1">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold">Authentication &amp; Access</span>
+<span class="font-body-sm text-body-sm text-primary font-medium">Optimal Status</span>
+</div>
+<div class="rounded-2xl bg-surface-container-lowest shadow-[0_4px_20px_-2px_rgba(17,17,17,0.03)] p-4 flex flex-col gap-5">
+<!-- Email Status -->
+<div class="flex items-center justify-between gap-3">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-xl bg-surface-container-low flex items-center justify-center text-on-surface-variant shrink-0">
+<span class="material-symbols-outlined text-[20px]">alternate_email</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md text-on-surface">Email Account</span>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">alex.lawson@glowup.app</span>
+</div>
+</div>
+</div>
+<span class="px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container font-label-sm text-label-sm font-semibold shrink-0 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">done</span> Verified
+          </span>
+</div>
+<div class="h-px w-full bg-surface-container"></div>
+<!-- Change Password -->
+<button class="flex items-center justify-between w-full text-left active:opacity-75 transition-opacity" type="button">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-xl bg-surface-container-low flex items-center justify-center text-on-surface-variant shrink-0">
+<span class="material-symbols-outlined text-[20px]">key</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">Change Password</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Last changed 3 months ago</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">arrow_forward_ios</span>
+</button>
+<div class="h-px w-full bg-surface-container"></div>
+<!-- Biometric Lock Toggle -->
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-xl bg-surface-container-low flex items-center justify-center text-on-surface-variant shrink-0">
+<span class="material-symbols-outlined text-[20px]">fingerprint</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">Biometric Lock</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">FaceID or TouchID unlock</span>
+</div>
+</div>
+<button aria-checked="true" class="w-13 h-7 px-0.5 rounded-full bg-primary flex items-center transition-colors" id="biometric-toggle" role="switch" type="button">
+<div class="w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm translate-x-6 transition-transform flex items-center justify-center" id="biometric-knob">
+<span class="material-symbols-outlined text-[14px] text-primary">check</span>
+</div>
+</button>
+</div>
+<div class="h-px w-full bg-surface-container"></div>
+<!-- App Lock Toggle -->
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-xl bg-surface-container-low flex items-center justify-center text-on-surface-variant shrink-0">
+<span class="material-symbols-outlined text-[20px]">lock</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">App Lock</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Require authentication on launch</span>
+</div>
+</div>
+<button aria-checked="true" class="w-13 h-7 px-0.5 rounded-full bg-primary flex items-center transition-colors" id="applock-toggle" role="switch" type="button">
+<div class="w-6 h-6 rounded-full bg-surface-container-lowest shadow-sm translate-x-6 transition-transform flex items-center justify-center" id="applock-knob">
+<span class="material-symbols-outlined text-[14px] text-primary">check</span>
+</div>
+</button>
+</div>
+<div class="h-px w-full bg-surface-container"></div>
+<!-- Auto-Lock Duration Pill Selector -->
+<div class="flex flex-col gap-2.5 pt-1">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">Auto-Lock Duration</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant" id="selected-duration-label">After 1 minute</span>
+</div>
+<div class="grid grid-cols-4 gap-1.5 p-1 rounded-2xl bg-surface-container-low">
+<button class="duration-pill py-2 rounded-xl font-label-sm text-label-sm text-on-surface-variant transition-all text-center" data-val="Immediately" type="button">Immediately</button>
+<button class="duration-pill py-2 rounded-xl font-label-sm text-label-sm font-semibold bg-primary-container text-on-primary-container shadow-sm transition-all text-center" data-val="1 min" type="button">1 min</button>
+<button class="duration-pill py-2 rounded-xl font-label-sm text-label-sm text-on-surface-variant transition-all text-center" data-val="5 min" type="button">5 min</button>
+<button class="duration-pill py-2 rounded-xl font-label-sm text-label-sm text-on-surface-variant transition-all text-center" data-val="15 min" type="button">15 min</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 2: Active Sessions -->
+<div class="flex flex-col gap-3">
+<div class="flex items-center justify-between px-1">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold">Active Sessions</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">2 Connected</span>
+</div>
+<div class="rounded-2xl bg-surface-container-lowest shadow-[0_4px_20px_-2px_rgba(17,17,17,0.03)] p-4 flex flex-col gap-4">
+<!-- Current Session (iPhone 15 Pro) -->
+<div class="flex items-start justify-between gap-3">
+<div class="flex items-start gap-3 min-w-0">
+<div class="w-10 h-10 rounded-xl bg-tertiary-container text-on-tertiary-container flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[20px]">stay_current_portrait</span>
+</div>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate">iPhone 15 Pro</span>
+<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-label-sm text-label-sm">This device</span>
+</div>
+<span class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">San Francisco, USA</span>
+<div class="flex items-center gap-1.5 mt-1">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-body-sm text-body-sm text-primary font-medium">Active now</span>
+</div>
+</div>
+</div>
+</div>
+<div class="h-px w-full bg-surface-container"></div>
+<!-- Secondary Session (MacBook Air) -->
+<div class="flex items-start justify-between gap-3 transition-all duration-300" id="session-macbook">
+<div class="flex items-start gap-3 min-w-0">
+<div class="w-10 h-10 rounded-xl bg-surface-container-low text-on-surface-variant flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[20px]">laptop_mac</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md text-on-surface font-semibold truncate">MacBook Air M2</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Chrome Browser • San Francisco, USA</span>
+<span class="font-body-sm text-body-sm text-outline mt-1">Yesterday at 4:15 PM</span>
+</div>
+</div>
+<button class="px-3 py-1.5 rounded-full bg-surface-container-low hover:bg-error-container hover:text-on-error-container text-on-surface font-label-sm text-label-sm font-semibold transition-colors shrink-0" id="revoke-btn" type="button">
+            Revoke
+          </button>
+</div>
+</div>
+</div>
+<!-- Section 3: Sign Out & Actions -->
+<div class="flex flex-col gap-3 pt-2">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider font-semibold px-1">Session Management</span>
+<!-- Primary Logout Card Button -->
+<button class="w-full h-14 rounded-full bg-surface-container-lowest hover:bg-surface-container-low shadow-[0_4px_20px_-2px_rgba(17,17,17,0.03)] flex items-center justify-center gap-2 text-on-surface active:scale-[0.99] transition-all" type="button">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+<span class="font-label-lg text-label-lg font-semibold">Sign Out</span>
+</button>
+<!-- Revoke All Action Link -->
+<div class="flex flex-col items-center justify-center text-center px-4 py-2 gap-2">
+<button class="text-error font-label-md text-label-md font-semibold hover:opacity-80 active:scale-95 transition-all" type="button">
+          Sign Out of All Devices
+        </button>
+<p class="font-body-sm text-body-sm text-on-surface-variant max-w-xs leading-relaxed">
+          Sign out will require re-authentication on next launch. Local habit records and journal data remain securely encrypted.
+        </p>
+</div>
+</div>
+</div>
+</div>
+<script>
+  // Duration Pill Selector Interactivity
+  const durationButtons = document.querySelectorAll('.duration-pill');
+  const labelIndicator = document.getElementById('selected-duration-label');
+  
+  durationButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      durationButtons.forEach(b => {
+        b.classList.remove('bg-primary-container', 'text-on-primary-container', 'shadow-sm', 'font-semibold');
+        b.classList.add('text-on-surface-variant');
+      });
+      btn.classList.add('bg-primary-container', 'text-on-primary-container', 'shadow-sm', 'font-semibold');
+      btn.classList.remove('text-on-surface-variant');
+      const val = btn.getAttribute('data-val');
+      if (labelIndicator) {
+        labelIndicator.textContent = val === 'Immediately' ? 'Immediately on exit' : `After ${val}`;
+      }
+    });
+  });
+
+  // Switch Toggle Helper
+  function wireToggle(buttonId, knobId) {
+    const btn = document.getElementById(buttonId);
+    const knob = document.getElementById(knobId);
+    if (!btn || !knob) return;
+    
+    let active = true;
+    btn.addEventListener('click', () => {
+      active = !active;
+      btn.setAttribute('aria-checked', active.toString());
+      if (active) {
+        btn.classList.remove('bg-surface-variant');
+        btn.classList.add('bg-primary');
+        knob.classList.add('translate-x-6');
+        knob.innerHTML = '<span class="material-symbols-outlined text-[14px] text-primary">check</span>';
+      } else {
+        btn.classList.remove('bg-primary');
+        btn.classList.add('bg-surface-variant');
+        knob.classList.remove('translate-x-6');
+        knob.innerHTML = '';
+      }
+    });
+  }
+
+  wireToggle('biometric-toggle', 'biometric-knob');
+  wireToggle('applock-toggle', 'applock-knob');
+
+  // Revoke session interaction
+  const revokeBtn = document.getElementById('revoke-btn');
+  const macSession = document.getElementById('session-macbook');
+  if (revokeBtn && macSession) {
+    revokeBtn.addEventListener('click', () => {
+      macSession.style.opacity = '0';
+      macSession.style.transform = 'scale(0.95)';
+      setTimeout(() => {
+        macSession.innerHTML = `
+          <div class="flex items-center gap-2 py-1 text-on-surface-variant font-body-sm text-body-sm w-full">
+            <span class="material-symbols-outlined text-[16px] text-secondary">check_circle</span>
+            <span>MacBook Air session revoked successfully</span>
+          </div>
+        `;
+        macSession.style.opacity = '1';
+        macSession.style.transform = 'scale(1)';
+      }, 250);
+    });
+  }
+</script></main></body></html>

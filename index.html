@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport" />
+  <title>GLOW UP — Personal Growth & Trading</title>
+
+  <!-- PWA Manifest & Mobile Capability -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#3e6a00" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GLOW UP" />
+  <link rel="apple-touch-icon" href="/assets/icon-192.png" />
+  <link rel="icon" type="image/png" href="/assets/app_logo.png" />
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+
+  <!-- Tailwind CDN & Theme Config matching Stitch Approved Design -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface": "#fcf9f8",
+            "tertiary": "#55633e",
+            "tertiary-fixed": "#d8e9ba",
+            "inverse-on-surface": "#f3f0ef",
+            "surface-container-highest": "#e5e2e1",
+            "surface-bright": "#fcf9f8",
+            "inverse-surface": "#313030",
+            "outline": "#75796a",
+            "on-tertiary-fixed-variant": "#3e4b29",
+            "error": "#ba1a1a",
+            "on-primary-container": "#58702d",
+            "on-secondary-fixed": "#0f2000",
+            "on-background": "#1c1b1b",
+            "on-secondary": "#ffffff",
+            "on-surface-variant": "#45483c",
+            "surface-container-low": "#f6f3f2",
+            "on-tertiary-container": "#5e6d47",
+            "on-error": "#ffffff",
+            "on-primary": "#ffffff",
+            "surface-container-lowest": "#ffffff",
+            "tertiary-fixed-dim": "#bccd9f",
+            "primary-fixed": "#d0ed9c",
+            "surface-container": "#f0edec",
+            "on-surface": "#1c1b1b",
+            "secondary-container": "#b9f474",
+            "on-error-container": "#93000a",
+            "inverse-primary": "#b4d082",
+            "on-tertiary": "#ffffff",
+            "error-container": "#ffdad6",
+            "surface-dim": "#dcd9d9",
+            "background": "#fcf9f8",
+            "on-primary-fixed-variant": "#384e0d",
+            "primary-container": "#d6f3a1",
+            "secondary-fixed-dim": "#9ed75b",
+            "secondary": "#3e6a00",
+            "surface-container-high": "#ebe7e7",
+            "on-tertiary-fixed": "#131f03",
+            "tertiary-container": "#deefc0",
+            "outline-variant": "#c5c8b8",
+            "primary": "#4e6624",
+            "on-secondary-container": "#437000",
+            "secondary-fixed": "#b9f474",
+            "on-primary-fixed": "#131f00",
+            "primary-fixed-dim": "#b4d082",
+            "on-secondary-fixed-variant": "#2e4f00",
+            "surface-tint": "#4e6624",
+            "surface-variant": "#e5e2e1"
+          },
+          borderRadius: {
+            "DEFAULT": "1rem",
+            "lg": "2rem",
+            "xl": "3rem",
+            "full": "9999px"
+          },
+          spacing: {
+            "margin": "1.25rem",
+            "space-sm": "0.5rem",
+            "space-lg": "1.5rem",
+            "space-md": "1rem",
+            "space-xs": "0.25rem",
+            "gutter": "1rem",
+            "space-xl": "2rem"
+          },
+          fontFamily: {
+            "body-sm": ["Inter", "sans-serif"],
+            "display-lg": ["Inter", "sans-serif"],
+            "headline-sm": ["Inter", "sans-serif"],
+            "label-sm": ["Inter", "sans-serif"],
+            "headline-md": ["Inter", "sans-serif"],
+            "headline-lg-mobile": ["Inter", "sans-serif"],
+            "label-lg": ["Inter", "sans-serif"],
+            "body-md": ["Inter", "sans-serif"],
+            "body-lg": ["Inter", "sans-serif"],
+            "headline-lg": ["Inter", "sans-serif"],
+            "label-md": ["Inter", "sans-serif"]
+          },
+          fontSize: {
+            "body-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "400" }],
+            "display-lg": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.03em", "fontWeight": "800" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "600" }],
+            "headline-md": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-lg-mobile": ["26px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-lg": ["16px", { "lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "body-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "400" }],
+            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "700" }],
+            "label-md": ["14px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "600" }]
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    @layer base {
+      html, body {
+        width: 100%;
+        min-height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        overscroll-behavior-y: none;
+        -webkit-tap-highlight-color: transparent;
+        font-family: 'Inter', sans-serif;
+      }
+      .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+      .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+      main > :first-child { margin-top: 0 !important; }
+      main > :last-child { margin-bottom: 0 !important; }
+    }
+    ::-webkit-scrollbar { display: none; }
+    
+    /* Toast notification */
+    .glow-toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-100px);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .glow-toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+  </style>
+</head>
+<body class="bg-surface font-body-md text-body-md text-on-surface antialiased flex flex-col min-h-screen">
+  <!-- Toast alert element -->
+  <div id="toast" class="glow-toast px-4 py-2.5 rounded-full bg-on-surface text-surface shadow-lg text-sm font-semibold flex items-center gap-2">
+    <span class="material-symbols-outlined text-[18px] text-primary-container">check_circle</span>
+    <span id="toast-message">Action saved</span>
+  </div>
+
+  <!-- App Container where screens mount -->
+  <div id="app" class="flex flex-col min-h-screen relative w-full"></div>
+
+  <!-- Menu Drawer/Overlay for Menu Tab Navigation Hub -->
+  <div id="menu-drawer" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs hidden transition-opacity">
+    <div class="absolute bottom-0 left-0 right-0 max-w-lg mx-auto bg-surface-container-lowest rounded-t-xl p-6 pb-12 shadow-2xl border-t border-outline-variant/30 flex flex-col gap-4 animate-in slide-in-from-bottom duration-300">
+      <div class="flex items-center justify-between pb-2 border-b border-surface-variant">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-primary-container inline-block"></span>
+          <h2 class="font-headline-sm text-headline-sm text-on-surface">App Menu</h2>
+        </div>
+        <button id="close-menu-btn" class="w-9 h-9 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface">
+          <span class="material-symbols-outlined text-[20px]">close</span>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 pt-2">
+        <a href="#/goals" class="menu-nav-link flex flex-col p-4 rounded-lg bg-surface-container-low hover:bg-primary-container/30 transition-colors">
+          <span class="material-symbols-outlined text-[26px] text-secondary mb-2">track_changes</span>
+          <span class="font-label-lg text-label-lg text-on-surface font-semibold">Goals</span>
+          <span class="font-body-sm text-body-sm text-on-surface-variant">Milestones & targets</span>
+        </a>
+        <a href="#/money" class="menu-nav-link flex flex-col p-4 rounded-lg bg-surface-container-low hover:bg-primary-container/30 transition-colors">
+          <span class="material-symbols-outlined text-[26px] text-secondary mb-2">account_balance_wallet</span>
+          <span class="font-label-lg text-label-lg text-on-surface font-semibold">Money</span>
+          <span class="font-body-sm text-body-sm text-on-surface-variant">Budget & expenses</span>
+        </a>
+        <a href="#/trading" class="menu-nav-link flex flex-col p-4 rounded-lg bg-surface-container-low hover:bg-primary-container/30 transition-colors">
+          <span class="material-symbols-outlined text-[26px] text-secondary mb-2">candlestick_chart</span>
+          <span class="font-label-lg text-label-lg text-on-surface font-semibold">Trading</span>
+          <span class="font-body-sm text-body-sm text-on-surface-variant">Accounts, P/L, rules</span>
+        </a>
+        <a href="#/rewards" class="menu-nav-link flex flex-col p-4 rounded-lg bg-surface-container-low hover:bg-primary-container/30 transition-colors">
+          <span class="material-symbols-outlined text-[26px] text-secondary mb-2">military_tech</span>
+          <span class="font-label-lg text-label-lg text-on-surface font-semibold">Rewards</span>
+          <span class="font-body-sm text-body-sm text-on-surface-variant">Achievements & badges</span>
+        </a>
+      </div>
+
+      <a href="#/menu" class="menu-nav-link flex items-center justify-between p-4 rounded-lg bg-surface-container hover:bg-primary-container/40 transition-colors mt-1">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-[22px] text-on-surface">settings</span>
+          <div class="flex flex-col">
+            <span class="font-label-md text-label-md text-on-surface font-semibold">Settings Dashboard</span>
+            <span class="font-body-sm text-body-sm text-on-surface-variant">Profile, backup, data reset</span>
+          </div>
+        </div>
+        <span class="material-symbols-outlined text-outline text-[20px]">chevron_right</span>
+      </a>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+  <script>
+    // Register PWA Service Worker in production/supporting environments
+    if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          console.log('GLOW UP PWA ServiceWorker registered with scope:', reg.scope);
+        }).catch((err) => {
+          console.warn('GLOW UP PWA ServiceWorker registration failed:', err);
+        });
+      });
+    }
+
+    // Capture install prompt for PWA installability
+    window.addEventListener('beforeinstallprompt', (e) => {
+      window.deferredPrompt = e;
+      console.log('PWA beforeinstallprompt fired');
+    });
+  </script>
+</body>
+</html>
