@@ -56,58 +56,110 @@ describe('CHECK 1 — Navigation & Route Mapping', () => {
 });
 
 // =====================================================
-// CHECK 2: LOCAL-FIRST DATA PERSISTENCE
+// CHECK 2: CLEAN-APP CONTRACT — ZERO PERSONAL DATA ON START
 // =====================================================
-describe('CHECK 2 — Data Persistence (IndexedDB)', () => {
+describe('CHECK 2 — Clean-App Contract (No Preloaded Personal Data)', () => {
   beforeAll(async () => {
     await seedInitialData();
   });
 
-  test('Habit persists to IndexedDB', async () => {
+  // 2a: New user starts with ZERO personal data
+  test('Zero habits on fresh start', async () => {
+    expect(await db.habits.count()).toBe(0);
+  });
+
+  test('Zero habit entries on fresh start', async () => {
+    expect(await db.habitEntries.count()).toBe(0);
+  });
+
+  test('Zero journal entries on fresh start', async () => {
+    expect(await db.journalEntries.count()).toBe(0);
+  });
+
+  test('Zero goals on fresh start', async () => {
+    expect(await db.goals.count()).toBe(0);
+  });
+
+  test('Zero goal milestones on fresh start', async () => {
+    expect(await db.goalMilestones.count()).toBe(0);
+  });
+
+  test('Zero transactions on fresh start', async () => {
+    expect(await db.transactions.count()).toBe(0);
+  });
+
+  test('Zero budgets on fresh start', async () => {
+    expect(await db.budgets.count()).toBe(0);
+  });
+
+  test('Zero trading accounts on fresh start', async () => {
+    expect(await db.tradingAccounts.count()).toBe(0);
+  });
+
+  test('Zero trades on fresh start', async () => {
+    expect(await db.trades.count()).toBe(0);
+  });
+
+  test('Zero weekly reviews on fresh start', async () => {
+    expect(await db.weeklyReviews.count()).toBe(0);
+  });
+
+  // 2b: System catalog data IS allowed
+  test('Achievements catalog seeded (system data, not personal data)', async () => {
+    const achCount = await db.achievements.count();
+    expect(achCount).toBeGreaterThanOrEqual(6);
+    // All achievements must be locked by default
+    const unlocked = await db.achievements.filter(a => a.unlocked === true).count();
+    expect(unlocked).toBe(0);
+  });
+
+  // 2c: User creates data through the actual service API — it persists
+  test('User-created habit persists', async () => {
     const id = await db.habits.add({
-      name: 'Evening Cold Shower',
-      icon: 'shower',
+      name: 'Morning Workout',
+      icon: 'fitness_center',
       category: 'Health',
       frequency: 'daily',
       targetDays: 7,
-      currentStreak: 3,
-      bestStreak: 5,
+      currentStreak: 0,
+      bestStreak: 0,
       createdAt: new Date().toISOString()
     });
     const saved = await db.habits.get(id);
     expect(saved).toBeDefined();
-    expect(saved.name).toBe('Evening Cold Shower');
+    expect(saved.name).toBe('Morning Workout');
   });
 
-  test('Journal entry persists to IndexedDB', async () => {
+  test('User-created journal entry persists', async () => {
     const id = await db.journalEntries.add({
       date: '2026-09-16',
-      mood: 'unstoppable',
-      gratitude: 'Discipline is freedom.',
-      notes: 'Testing persistence across session restart.',
+      mood: 'focused',
+      status: 'completed',
+      gratitude: 'Grateful for discipline.',
+      notes: 'Testing clean-app persistence.',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
     const saved = await db.journalEntries.get(id);
     expect(saved).toBeDefined();
-    expect(saved.notes).toContain('Testing persistence');
+    expect(saved.notes).toContain('clean-app');
   });
 
-  test('Goal persists to IndexedDB', async () => {
+  test('User-created goal persists', async () => {
     const id = await db.goals.add({
-      title: 'Reach $50,000 Net Profit',
-      category: 'Finance',
+      title: 'Pass Prop Firm Challenge',
+      category: 'Trading',
       targetDate: '2026-12-31',
-      progress: 40,
+      progress: 0,
       status: 'IN_PROGRESS',
       createdAt: new Date().toISOString()
     });
     const saved = await db.goals.get(id);
     expect(saved).toBeDefined();
-    expect(saved.title).toBe('Reach $50,000 Net Profit');
+    expect(saved.title).toBe('Pass Prop Firm Challenge');
   });
 
-  test('Financial transaction persists to IndexedDB', async () => {
+  test('User-created transaction persists', async () => {
     const id = await db.transactions.add({
       type: 'income',
       amount: 3200.00,
@@ -120,15 +172,74 @@ describe('CHECK 2 — Data Persistence (IndexedDB)', () => {
     expect(saved.amount).toBe(3200.00);
   });
 
-  test('All seeded data is intact on database query', async () => {
-    const habitCount = await db.habits.count();
-    const journalCount = await db.journalEntries.count();
-    const goalCount = await db.goals.count();
-    const txCount = await db.transactions.count();
-    expect(habitCount).toBeGreaterThanOrEqual(8);
-    expect(journalCount).toBeGreaterThanOrEqual(3);
-    expect(goalCount).toBeGreaterThanOrEqual(3);
-    expect(txCount).toBeGreaterThanOrEqual(6);
+  // 2d: Deleting user data actually removes it
+  test('Deleted habit is removed permanently', async () => {
+    const id = await db.habits.add({
+      name: 'Temp Habit To Delete',
+      createdAt: new Date().toISOString()
+    });
+    expect(await db.habits.get(id)).toBeDefined();
+    await db.habits.delete(id);
+    expect(await db.habits.get(id)).toBeUndefined();
+  });
+
+  test('Deleted journal entry is removed permanently', async () => {
+    const id = await db.journalEntries.add({
+      date: '2026-01-01',
+      notes: 'Will be deleted',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    expect(await db.journalEntries.get(id)).toBeDefined();
+    await db.journalEntries.delete(id);
+    expect(await db.journalEntries.get(id)).toBeUndefined();
+  });
+
+  test('Deleted goal is removed permanently', async () => {
+    const id = await db.goals.add({
+      title: 'Temp Goal To Delete',
+      createdAt: new Date().toISOString()
+    });
+    expect(await db.goals.get(id)).toBeDefined();
+    await db.goals.delete(id);
+    expect(await db.goals.get(id)).toBeUndefined();
+  });
+
+  test('Deleted transaction is removed permanently', async () => {
+    const id = await db.transactions.add({
+      type: 'expense',
+      amount: 50.00,
+      category: 'Test',
+      createdAt: new Date().toISOString()
+    });
+    expect(await db.transactions.get(id)).toBeDefined();
+    await db.transactions.delete(id);
+    expect(await db.transactions.get(id)).toBeUndefined();
+  });
+
+  // 2e: Re-running seedInitialData does NOT recreate deleted personal data
+  test('seedInitialData does not inject personal data on re-run', async () => {
+    // Clear all personal data tables
+    await db.habits.clear();
+    await db.journalEntries.clear();
+    await db.goals.clear();
+    await db.transactions.clear();
+    await db.tradingAccounts.clear();
+    await db.trades.clear();
+
+    // Re-run seed (simulates app restart / data-reset)
+    await seedInitialData();
+
+    // Personal data must still be zero
+    expect(await db.habits.count()).toBe(0);
+    expect(await db.journalEntries.count()).toBe(0);
+    expect(await db.goals.count()).toBe(0);
+    expect(await db.transactions.count()).toBe(0);
+    expect(await db.tradingAccounts.count()).toBe(0);
+    expect(await db.trades.count()).toBe(0);
+
+    // System catalog must remain
+    expect(await db.achievements.count()).toBeGreaterThanOrEqual(6);
   });
 });
 

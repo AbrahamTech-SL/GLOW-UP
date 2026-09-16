@@ -146,16 +146,18 @@ class SyncEngineCore {
 
     let totalPulled = 0;
 
-    for (const { local, cloud } of tables) {
+    const pullPromises = tables.map(async ({ local, cloud }) => {
       try {
         const { data, error } = await supabase.from(cloud).select('*').eq('user_id', userId);
-        if (error || !data) continue;
+        if (error || !data || data.length === 0) return 0;
+
+        const localTable = db[local];
+        if (!localTable) return 0;
+
+        let tablePulled = 0;
+        const toPut = [];
 
         for (const cloudItem of data) {
-          const localTable = db[local];
-          if (!localTable) continue;
-
-          // Check if local version exists
           let localItem = null;
           if (cloudItem.id) {
             localItem = await localTable.where('cloudId').equals(cloudItem.id).first() ||
@@ -163,17 +165,27 @@ class SyncEngineCore {
           }
 
           const resolved = this.resolveConflict(localItem, cloudItem, local);
-
           if (localItem) {
-            await localTable.update(localItem.id, { ...resolved, userId });
+            toPut.push({ ...localItem, ...resolved, userId, id: localItem.id });
           } else {
-            await localTable.add({ ...resolved, userId });
+            toPut.push({ ...resolved, userId });
           }
-          totalPulled++;
+          tablePulled++;
         }
+
+        if (toPut.length > 0) {
+          await localTable.bulkPut(toPut);
+        }
+        return tablePulled;
       } catch (err) {
         console.warn(`Pull error for ${local}`, err);
+        return 0;
       }
+    });
+
+    const results = await Promise.allSettled(pullPromises);
+    for (const r of results) {
+      if (r.status === 'fulfilled') totalPulled += r.value;
     }
 
     this.notify('PULL_COMPLETED', { totalPulled });

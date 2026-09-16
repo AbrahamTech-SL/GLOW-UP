@@ -35,6 +35,23 @@ db.version(3).stores({
   syncQueue: '++id, userId, table, recordId, action, status, createdAt'
 });
 
+// Version 4 schema: High-performance compound indexes for multi-user queries & pagination
+db.version(4).stores({
+  users: '++id, userId, name, email, createdAt',
+  habits: '++id, userId, [userId+archivedAt], name, frequency, archivedAt, createdAt',
+  habitEntries: '++id, userId, [userId+date], [habitId+date], habitId, date, completed',
+  journalEntries: '++id, userId, [userId+date], date, status, mood, createdAt',
+  goals: '++id, userId, [userId+status], name, category, status, deadline',
+  goalMilestones: '++id, userId, [userId+goalId], goalId, completed',
+  transactions: '++id, userId, [userId+date], [userId+type], name, type, category, date, recurring',
+  budgets: '++id, userId, [userId+month], month',
+  tradingAccounts: '++id, userId, [userId+status], name, type, status, broker',
+  trades: '++id, userId, [userId+accountId], accountId, instrument, direction, result, openDate, closeDate',
+  weeklyReviews: '++id, userId, [userId+weekStart], weekStart, weekEnd, status',
+  achievements: '++id, userId, [userId+achievementKey], achievementKey, unlocked',
+  syncQueue: '++id, userId, table, recordId, action, status, createdAt'
+});
+
 // Multi-User Context
 let activeUserId = 'default_user';
 
@@ -78,7 +95,17 @@ export function matchesActiveUser(item, targetUid) {
 // ==========================================
 export const HabitService = {
   async getAll(includeArchived = false) {
-    let habits = await db.habits.filter(h => matchesActiveUser(h)).toArray();
+    const uid = getActiveUserId();
+    let habits;
+    try {
+      habits = await db.habits.where('userId').equals(uid).toArray();
+    } catch {
+      habits = await db.habits.filter(h => matchesActiveUser(h, uid)).toArray();
+    }
+    if (uid === 'default_user' && habits.length === 0) {
+      const all = await db.habits.toArray();
+      habits = all.filter(h => matchesActiveUser(h, uid));
+    }
     if (!includeArchived) {
       habits = habits.filter(h => !h.archivedAt);
     }
@@ -102,11 +129,17 @@ export const HabitService = {
     return { id, ...habit };
   },
 
+  async get(id) {
+    const hid = parseInt(id, 10);
+    return db.habits.get(hid);
+  },
+
   async update(id, updates) {
+    const hid = parseInt(id, 10);
     const updated = { ...updates, updatedAt: new Date().toISOString() };
-    await db.habits.update(id, updated);
-    await queueSyncMutation('habits', id, 'update', updated);
-    return db.habits.get(id);
+    await db.habits.update(hid, updated);
+    await queueSyncMutation('habits', hid, 'update', updated);
+    return db.habits.get(hid);
   },
 
   async archive(id) {
@@ -115,10 +148,27 @@ export const HabitService = {
     await queueSyncMutation('habits', id, 'update', updated);
   },
 
+  async delete(id) {
+    const hid = parseInt(id, 10);
+    await db.habitEntries.where('habitId').equals(hid).delete();
+    await db.habits.delete(hid);
+    await queueSyncMutation('habits', hid, 'delete');
+  },
+
   async toggleCompletion(habitId, dateStr = new Date().toISOString().split('T')[0]) {
-    const existing = await db.habitEntries
-      .filter(e => e.habitId === habitId && e.date === dateStr && matchesActiveUser(e))
-      .first();
+    const hid = parseInt(habitId, 10);
+    let existing = null;
+    try {
+      existing = await db.habitEntries.where('[habitId+date]').equals([hid, dateStr]).first();
+      if (existing && !matchesActiveUser(existing)) existing = null;
+    } catch {
+      // fallback
+    }
+    if (!existing) {
+      existing = await db.habitEntries
+        .filter(e => (e.habitId === hid || e.habitId === habitId) && e.date === dateStr && matchesActiveUser(e))
+        .first();
+    }
     const nextCompleted = !existing?.completed;
 
     if (existing) {
@@ -131,7 +181,7 @@ export const HabitService = {
     } else {
       const entry = {
         userId: getActiveUserId(),
-        habitId,
+        habitId: hid,
         date: dateStr,
         completed: true,
         createdAt: new Date().toISOString(),
@@ -144,6 +194,27 @@ export const HabitService = {
     // Check achievement triggers
     await AchievementService.checkAll();
     return nextCompleted;
+  },
+
+  async toggle(habitId, dateStr = new Date().toISOString().split('T')[0]) {
+    return this.toggleCompletion(habitId, dateStr);
+  },
+
+  async isCompletedToday(habitId, dateStr = new Date().toISOString().split('T')[0]) {
+    const hid = parseInt(habitId, 10);
+    let entry = null;
+    try {
+      entry = await db.habitEntries.where('[habitId+date]').equals([hid, dateStr]).first();
+      if (entry && !matchesActiveUser(entry)) entry = null;
+    } catch {
+      // fallback
+    }
+    if (!entry) {
+      entry = await db.habitEntries
+        .filter(e => (e.habitId === hid || e.habitId === habitId) && e.date === dateStr && matchesActiveUser(e))
+        .first();
+    }
+    return !!entry?.completed;
   },
 
   async getStreaks(habitId) {
@@ -185,13 +256,24 @@ export const HabitService = {
     return { currentStreak, bestStreak };
   },
 
-  async getDailyCompletionStats(dateStr = new Date().toISOString().split('T')[0]) {
-    const habits = await this.getAll(false);
+  async getDailyCompletionStats(dateStr = new Date().toISOString().split('T')[0], preloadedHabits = null) {
+    const habits = preloadedHabits || await this.getAll(false);
     if (habits.length === 0) return { total: 0, completed: 0, percentage: 0 };
 
-    const entries = await db.habitEntries.where('date').equals(dateStr).toArray();
-    const completedMap = new Set(entries.filter(e => e.completed).map(e => e.habitId));
+    const uid = getActiveUserId();
+    let entries;
+    try {
+      entries = await db.habitEntries.where('[userId+date]').equals([uid, dateStr]).toArray();
+    } catch {
+      entries = await db.habitEntries.where('date').equals(dateStr).toArray();
+      entries = entries.filter(e => matchesActiveUser(e, uid));
+    }
+    if (entries.length === 0 && uid === 'default_user') {
+      const allEntries = await db.habitEntries.where('date').equals(dateStr).toArray();
+      entries = allEntries.filter(e => matchesActiveUser(e, uid));
+    }
 
+    const completedMap = new Set(entries.filter(e => e.completed).map(e => e.habitId));
     const completedCount = habits.filter(h => completedMap.has(h.id)).length;
     const percentage = Math.round((completedCount / habits.length) * 100);
 
@@ -208,12 +290,35 @@ export const HabitService = {
 // ==========================================
 export const JournalService = {
   async getToday(dateStr = new Date().toISOString().split('T')[0]) {
-    const all = await db.journalEntries.filter(j => j.date === dateStr && matchesActiveUser(j)).toArray();
-    return all[0] || null;
+    const uid = getActiveUserId();
+    let entry = null;
+    try {
+      entry = await db.journalEntries.where('[userId+date]').equals([uid, dateStr]).first();
+    } catch {
+      // fallback
+    }
+    if (!entry) {
+      entry = await db.journalEntries.filter(j => j.date === dateStr && matchesActiveUser(j, uid)).first();
+    }
+    return entry || null;
   },
 
-  async getAll() {
-    return db.journalEntries.filter(j => matchesActiveUser(j)).reverse().toArray();
+  async getAll(limit = null, offset = 0) {
+    const uid = getActiveUserId();
+    let entries;
+    try {
+      entries = await db.journalEntries.where('userId').equals(uid).reverse().toArray();
+    } catch {
+      entries = await db.journalEntries.filter(j => matchesActiveUser(j, uid)).reverse().toArray();
+    }
+    if (uid === 'default_user' && entries.length === 0) {
+      const all = await db.journalEntries.toArray();
+      entries = all.filter(j => matchesActiveUser(j, uid)).reverse();
+    }
+    if (typeof limit === 'number' && limit > 0) {
+      return entries.slice(offset, offset + limit);
+    }
+    return entries;
   },
 
   async createOrUpdate(data) {
@@ -300,7 +405,18 @@ export const JournalService = {
 // ==========================================
 export const GoalService = {
   async getAll() {
-    return db.goals.filter(g => matchesActiveUser(g)).toArray();
+    const uid = getActiveUserId();
+    let goals;
+    try {
+      goals = await db.goals.where('userId').equals(uid).toArray();
+    } catch {
+      goals = await db.goals.filter(g => matchesActiveUser(g, uid)).toArray();
+    }
+    if (uid === 'default_user' && goals.length === 0) {
+      const all = await db.goals.toArray();
+      goals = all.filter(g => matchesActiveUser(g, uid));
+    }
+    return goals;
   },
 
   async get(id) {
@@ -368,7 +484,12 @@ export const GoalService = {
   async recalculateProgress(goalId) {
     const gid = parseInt(goalId, 10);
     const milestones = await db.goalMilestones.filter(m => m.goalId === gid && matchesActiveUser(m)).toArray();
-    if (milestones.length === 0) return;
+    if (milestones.length === 0) {
+      const updated = { currentProgress: 0, status: 'ACTIVE', updatedAt: new Date().toISOString() };
+      await db.goals.update(gid, updated);
+      await queueSyncMutation('goals', gid, 'update', updated);
+      return;
+    }
 
     const completed = milestones.filter(m => m.completed).length;
     const progress = Math.round((completed / milestones.length) * 100);
@@ -383,6 +504,16 @@ export const GoalService = {
     await queueSyncMutation('goals', gid, 'update', updated);
   },
 
+  async deleteMilestone(milestoneId) {
+    const mid = parseInt(milestoneId, 10);
+    const m = await db.goalMilestones.get(mid);
+    if (!m) return;
+    const goalId = m.goalId;
+    await db.goalMilestones.delete(mid);
+    await queueSyncMutation('goalMilestones', mid, 'delete');
+    await this.recalculateProgress(goalId);
+  },
+
   async delete(id) {
     const gid = parseInt(id, 10);
     await db.goals.delete(gid);
@@ -395,8 +526,22 @@ export const GoalService = {
 // 4. MONEY SERVICE
 // ==========================================
 export const MoneyService = {
-  async getAllTransactions() {
-    return db.transactions.filter(t => matchesActiveUser(t)).reverse().toArray();
+  async getAllTransactions(limit = null, offset = 0) {
+    const uid = getActiveUserId();
+    let txs;
+    try {
+      txs = await db.transactions.where('userId').equals(uid).reverse().toArray();
+    } catch {
+      txs = await db.transactions.filter(t => matchesActiveUser(t, uid)).reverse().toArray();
+    }
+    if (uid === 'default_user' && txs.length === 0) {
+      const all = await db.transactions.toArray();
+      txs = all.filter(t => matchesActiveUser(t, uid)).reverse();
+    }
+    if (typeof limit === 'number' && limit > 0) {
+      return txs.slice(offset, offset + limit);
+    }
+    return txs;
   },
 
   async addTransaction({ name, type = 'expense', amount, category = 'General', date, notes = '', recurring = false }) {
@@ -450,13 +595,15 @@ export const MoneyService = {
 
     const monthlyIncome = monthTx.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
     const monthlyExpenses = monthTx.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+    const savingsRate = totalIncome > 0 ? Math.max(0, Math.round(((totalIncome - totalExpenses) / totalIncome) * 100)) : 0;
 
     return {
       totalIncome: parseFloat(totalIncome.toFixed(2)),
       totalExpenses: parseFloat(totalExpenses.toFixed(2)),
       netBalance: parseFloat(netBalance.toFixed(2)),
       monthlyIncome: parseFloat(monthlyIncome.toFixed(2)),
-      monthlyExpenses: parseFloat(monthlyExpenses.toFixed(2))
+      monthlyExpenses: parseFloat(monthlyExpenses.toFixed(2)),
+      savingsRate
     };
   },
 
@@ -527,233 +674,75 @@ export const AchievementService = {
 };
 
 // ==========================================
-// INITIAL DATA SEEDER (ISOLATED & REALISTIC)
+// INITIAL DATA SEEDER (CLEAN CATALOG ONLY — ZERO FAKE DATA)
 // ==========================================
 export async function seedInitialData() {
-  const userCount = await db.users.count();
-  if (userCount > 0) return;
+  // Ensure default achievements catalog exists, but all locked (unlocked: false)
+  // This is SYSTEM catalog data, NOT personal user data.
+  // No habits, journals, goals, transactions, or trades are seeded.
+  // A new user starts with a completely empty personal app.
+  const achCount = await db.achievements.count();
+  if (achCount === 0) {
+    await db.achievements.bulkAdd([
+      { achievementKey: 'first_journal', title: 'First Journal', description: 'Log your first completed daily journal reflection', icon: 'edit_note', unlocked: false, unlockedAt: null },
+      { achievementKey: '7_day_streak', title: '7 Day Streak', description: 'Maintain a 7-day habit or journaling streak', icon: 'local_fire_department', unlocked: false, unlockedAt: null },
+      { achievementKey: 'first_goal_completed', title: 'Goal Crusher', description: 'Complete 100% of milestones on a goal', icon: 'military_tech', unlocked: false, unlockedAt: null },
+      { achievementKey: 'budget_started', title: 'Budget Started', description: 'Establish your monthly financial budget', icon: 'account_balance_wallet', unlocked: false, unlockedAt: null },
+      { achievementKey: 'first_trade_journal', title: 'Disciplined Trader', description: 'Record a trade with detailed review notes', icon: 'shield', unlocked: false, unlockedAt: null },
+      { achievementKey: 'first_backup', title: 'Data Guardian', description: 'Export a secure JSON backup of your data', icon: 'cloud_done', unlocked: false, unlockedAt: null }
+    ]);
+  }
+}
 
-  console.log('Seeding initial Glow Up data into IndexedDB (Clean & Functional)...');
+// ==========================================
+// SAFE CLEANUP / RESET PROCESS (ZERO ORPHANS, ZERO FAKE DATA)
+// ==========================================
+export async function cleanResetUserData(targetUid) {
+  const uid = targetUid || getActiveUserId();
 
-  // 1. User
-  await db.users.add({
-    id: 1,
-    name: 'Alex Lawson',
-    email: 'alex@glowup.io',
-    profileInfo: 'Disciplined trader and high-performance creator.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
-
-  // 2. Habits
-  const habitIds = await db.habits.bulkAdd([
-    { name: 'Morning meditation & breathwork', description: '10 min mindfulness session', frequency: 'daily', target: 7, createdAt: new Date().toISOString(), archivedAt: null },
-    { name: 'Workout session', description: '45 min strength and mobility training', frequency: 'daily', target: 5, createdAt: new Date().toISOString(), archivedAt: null },
-    { name: 'Daily Journal', description: 'Gratitude, wins, and daily reflection', frequency: 'daily', target: 7, createdAt: new Date().toISOString(), archivedAt: null },
-    { name: 'Review goals', description: 'Weekly & monthly milestone alignment', frequency: 'daily', target: 7, createdAt: new Date().toISOString(), archivedAt: null },
-    { name: 'Evening reflection', description: 'Screen-free wind-down', frequency: 'daily', target: 7, createdAt: new Date().toISOString(), archivedAt: null },
-    { name: 'Hydration 3L', description: '3 liters of water throughout the day', frequency: 'daily', target: 7, createdAt: new Date().toISOString(), archivedAt: null },
-    { name: 'Cold shower', description: '2 min cold exposure for mental resilience', frequency: 'daily', target: 7, createdAt: new Date().toISOString(), archivedAt: null },
-    { name: 'Read 10 pages', description: 'Psychology and trading systems literature', frequency: 'daily', target: 7, createdAt: new Date().toISOString(), archivedAt: null }
-  ], { allKeys: true });
-
-  const todayStr = new Date().toISOString().split('T')[0];
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-  const twoDaysAgo = new Date(Date.now() - 172800000).toISOString().split('T')[0];
-
-  // Seed completions for today
-  await db.habitEntries.bulkAdd([
-    { habitId: habitIds[0], date: todayStr, completed: true, createdAt: new Date().toISOString() },
-    { habitId: habitIds[1], date: todayStr, completed: true, createdAt: new Date().toISOString() },
-    { habitId: habitIds[2], date: todayStr, completed: false, createdAt: new Date().toISOString() },
-    { habitId: habitIds[3], date: todayStr, completed: false, createdAt: new Date().toISOString() },
-    { habitId: habitIds[4], date: todayStr, completed: false, createdAt: new Date().toISOString() },
-    { habitId: habitIds[5], date: todayStr, completed: false, createdAt: new Date().toISOString() }
+  // 1. Delete all application data records for target user in Dexie
+  await Promise.all([
+    db.habits.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.habitEntries.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.journalEntries.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.goals.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.goalMilestones.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.transactions.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.budgets.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.tradingAccounts.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.trades.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.weeklyReviews.filter(item => matchesActiveUser(item, uid)).delete(),
+    db.syncQueue.filter(item => matchesActiveUser(item, uid)).delete()
   ]);
 
-  // 3. Journal Entries
-  await db.journalEntries.bulkAdd([
-    {
-      date: todayStr,
-      mood: 'focused',
-      gratitude: 'Morning clarity, clean execution, and patience.',
-      wins: 'Stuck to risk parameters and completed 45m workout.',
-      improvements: 'Avoid opening charting software after 5 PM.',
-      notes: 'Market respected London liquidity sweep. Executed plan with zero hesitation.',
-      status: 'completed',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    },
-    {
-      date: yesterday,
-      mood: 'disciplined',
-      gratitude: 'Patience when setups did not trigger.',
-      wins: 'Preserved capital on choppy news session.',
-      improvements: 'More sleep before European open.',
-      notes: 'No trade taken today because conditions lacked A+ confluence. Capital preserved.',
-      status: 'completed',
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000).toISOString()
-    },
-    {
-      date: twoDaysAgo,
-      mood: 'calm',
-      gratitude: 'Steady compounding and structured routine.',
-      wins: 'Took partials into liquidity as planned.',
-      improvements: 'Keep moving stop to breakeven calmly.',
-      notes: 'Clean trade on Asian high sweep. Followed plan to the letter.',
-      status: 'completed',
-      createdAt: new Date(Date.now() - 172800000).toISOString(),
-      updatedAt: new Date(Date.now() - 172800000).toISOString()
+  // 2. Reset achievements to locked state
+  const achs = await db.achievements.toArray();
+  for (const a of achs) {
+    await db.achievements.update(a.id, { unlocked: false, unlockedAt: null });
+  }
+
+  // 3. Clean up Supabase records for current user if online and authenticated
+  try {
+    const { supabase } = await import('../auth/index.js');
+    if (supabase) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        const authUid = session.user.id;
+        await Promise.allSettled([
+          supabase.from('trades').delete().eq('user_id', authUid),
+          supabase.from('trading_accounts').delete().eq('user_id', authUid),
+          supabase.from('habit_entries').delete().eq('user_id', authUid),
+          supabase.from('habits').delete().eq('user_id', authUid),
+          supabase.from('journal_entries').delete().eq('user_id', authUid),
+          supabase.from('goal_milestones').delete().eq('user_id', authUid),
+          supabase.from('goals').delete().eq('user_id', authUid),
+          supabase.from('transactions').delete().eq('user_id', authUid),
+          supabase.from('budgets').delete().eq('user_id', authUid),
+          supabase.from('weekly_reviews').delete().eq('user_id', authUid)
+        ]);
+      }
     }
-  ]);
-
-  // 4. Goals
-  const g1 = await db.goals.add({
-    name: 'Funded Trader Certification ($100k)',
-    title: 'Funded Trader Certification ($100k)',
-    description: 'Pass 2-step prop evaluation with strict 1% risk per trade.',
-    category: 'Trading',
-    target: 100,
-    currentProgress: 66,
-    progress: 66,
-    deadline: '2026-12-31',
-    targetDate: '2026-12-31',
-    status: 'ACTIVE',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
-
-  const g2 = await db.goals.add({
-    name: 'Emergency Capital Buffer ($20,000)',
-    title: 'Emergency Capital Buffer ($20,000)',
-    description: 'Maintain 6-month living expenses in high-yield liquid vault.',
-    category: 'Finance',
-    target: 20000,
-    currentProgress: 75,
-    progress: 75,
-    deadline: '2026-11-30',
-    targetDate: '2026-11-30',
-    status: 'ACTIVE',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
-
-  const g3 = await db.goals.add({
-    name: 'Physical Peak Conditioning',
-    title: 'Physical Peak Conditioning',
-    description: 'Reach 12% body fat with consistent resistance and cardio training.',
-    category: 'Health',
-    target: 100,
-    currentProgress: 50,
-    progress: 50,
-    deadline: '2026-12-15',
-    targetDate: '2026-12-15',
-    status: 'ACTIVE',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
-
-  await db.goalMilestones.bulkAdd([
-    { goalId: g1, title: 'Phase 1 (+8%) Passed', completed: true, completedAt: new Date().toISOString() },
-    { goalId: g1, title: 'Phase 2 (+5%) Target Reached', completed: true, completedAt: new Date().toISOString() },
-    { goalId: g1, title: 'First Payout Withdrawn', completed: false, completedAt: null },
-    { goalId: g2, title: 'Reach $10k balance', completed: true, completedAt: new Date().toISOString() },
-    { goalId: g2, title: 'Reach $15k balance', completed: true, completedAt: new Date().toISOString() }
-  ]);
-
-  // 5. Transactions
-  await db.transactions.bulkAdd([
-    { name: 'Prop Payout', type: 'income', amount: 4850.00, category: 'Trading Payout', date: todayStr, notes: 'Profit split payment', recurring: false, createdAt: new Date().toISOString() },
-    { name: 'Gym Club', type: 'expense', amount: 145.00, category: 'Health & Fitness', date: todayStr, notes: 'Monthly membership', recurring: true, createdAt: new Date().toISOString() },
-    { name: 'Meal Prep', type: 'expense', amount: 68.50, category: 'Groceries', date: todayStr, notes: 'Organic groceries', recurring: false, createdAt: new Date().toISOString() },
-    { name: 'TradingView Sub', type: 'expense', amount: 59.95, category: 'Tools', date: yesterday, notes: 'Annual charting renewal', recurring: true, createdAt: new Date(Date.now() - 86400000).toISOString() },
-    { name: 'Books & Learning', type: 'expense', amount: 42.00, category: 'Education', date: twoDaysAgo, notes: 'Trading psychology manuals', recurring: false, createdAt: new Date(Date.now() - 172800000).toISOString() }
-  ]);
-
-  await db.budgets.add({
-    month: todayStr.slice(0, 7),
-    totalLimit: 4000,
-    categories: [
-      { name: 'Living & Housing', limit: 2000, spent: 1800 },
-      { name: 'Food & Nutrition', limit: 800, spent: 480 },
-      { name: 'Trading Tools', limit: 300, spent: 213 }
-    ]
-  });
-
-  // 6. Trading Accounts
-  const acc1 = await db.tradingAccounts.add({
-    name: 'Apex 50k Prop • Main',
-    type: 'funded',
-    broker: 'Tradovate',
-    accountNumberOrNickname: 'APEX-88421',
-    currency: 'USD',
-    accountSize: 50000,
-    startingBalance: 50000,
-    currentBalance: 52840,
-    currentEquity: 52840,
-    status: 'ACTIVE',
-    riskPerTradePercent: 1.0,
-    riskPerTradeAmount: 500,
-    dailyLossLimitPercent: 3.0,
-    dailyLossLimitAmount: 1500,
-    maximumDrawdownPercent: 5.0,
-    maximumDrawdownAmount: 2500,
-    profitTargetPercent: 10.0,
-    profitTargetAmount: 5000,
-    challengeDeadline: '2026-12-31',
-    minimumTradingDays: 5,
-    maximumTradesPerDay: 4,
-    weekendHoldingAllowed: false,
-    newsTradingAllowed: true,
-    notes: 'Primary funded account. Strict trailing drawdown.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    blownAt: null,
-    passedAt: null,
-    failedAt: null
-  });
-
-  // 7. Trades
-  await db.trades.add({
-    accountId: acc1,
-    instrument: 'XAUUSD',
-    direction: 'BUY',
-    entryPrice: 2580.40,
-    stopLoss: 2574.00,
-    takeProfit: 2600.00,
-    exitPrice: 2596.50,
-    positionSize: 0.80,
-    openDate: `${todayStr} 08:30`,
-    closeDate: `${todayStr} 11:15`,
-    riskAmount: 512.00,
-    riskPercent: 0.97,
-    potentialProfit: 1568.00,
-    riskReward: 3.06,
-    pnl: 1288.00,
-    pnlPercent: 2.44,
-    result: 'WIN',
-    setupType: 'London Breakout',
-    timeframe: '15m',
-    reason: 'Break and retest of session highs with volume expansion',
-    whatWentWell: 'Waited patiently for 15m candle close',
-    whatWentWrong: 'Exited slightly before final TP',
-    lessons: 'Trust the higher timeframe trend',
-    emotionalState: 'Calm & disciplined',
-    notes: 'Clean execution',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
-
-  // 8. Achievements
-  await db.achievements.bulkAdd([
-    { achievementKey: 'first_journal', title: 'First Journal', description: 'Log your first completed daily journal reflection', icon: 'edit_note', unlocked: true, unlockedAt: todayStr },
-    { achievementKey: '7_day_streak', title: '7 Day Streak', description: 'Maintain a 7-day habit or journaling streak', icon: 'local_fire_department', unlocked: false, unlockedAt: null },
-    { achievementKey: 'first_goal_completed', title: 'Goal Crusher', description: 'Complete 100% of milestones on a goal', icon: 'military_tech', unlocked: false, unlockedAt: null },
-    { achievementKey: 'budget_started', title: 'Budget Started', description: 'Establish your monthly financial budget', icon: 'account_balance_wallet', unlocked: true, unlockedAt: todayStr },
-    { achievementKey: 'first_trade_journal', title: 'Disciplined Trader', description: 'Record a trade with detailed review notes', icon: 'shield', unlocked: true, unlockedAt: todayStr },
-    { achievementKey: 'first_backup', title: 'Data Guardian', description: 'Export a secure JSON backup of your data', icon: 'cloud_done', unlocked: false, unlockedAt: null }
-  ]);
-
-  console.log('Seeding completed successfully!');
+  } catch (err) {
+    // Offline or Supabase unavailable; local Dexie reset completed cleanly
+  }
 }

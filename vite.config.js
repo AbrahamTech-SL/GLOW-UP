@@ -9,12 +9,23 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    chunkSizeWarningLimit: 1600,
+    chunkSizeWarningLimit: 1000,
+    minify: 'esbuild',
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-supabase': ['@supabase/supabase-js'],
-          'vendor-dexie': ['dexie']
+        manualChunks(id) {
+          if (id.includes('@supabase')) {
+            return 'vendor-supabase';
+          }
+          if (id.includes('dexie')) {
+            return 'vendor-dexie';
+          }
+          if (id.includes('trading/engine')) {
+            return 'module-trading';
+          }
+          if (id.includes('screensData')) {
+            return 'module-screens';
+          }
         }
       }
     }

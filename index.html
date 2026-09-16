@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport" />
   <title>GLOW UP — Personal Growth & Trading</title>
+  <meta name="description" content="GLOW UP is a personal growth, daily habit tracking, and prop trading journal application with offline-first persistence." />
 
   <!-- PWA Manifest & Mobile Capability -->
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -15,9 +16,10 @@
   <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   <link rel="icon" type="image/png" href="/assets/app_logo.png" />
   
-  <!-- Fonts -->
+  <!-- Fonts & CDN Hints -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="dns-prefetch" href="https://cdn.tailwindcss.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
 
@@ -130,11 +132,17 @@
         min-height: 100%;
         margin: 0;
         padding: 0;
+        overflow-x: hidden;
       }
       body {
         overscroll-behavior-y: none;
         -webkit-tap-highlight-color: transparent;
         font-family: 'Inter', sans-serif;
+      }
+      #app {
+        width: 100%;
+        min-height: 100%;
+        overflow-x: hidden;
       }
       .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
       .pt-safe { padding-top: env(safe-area-inset-top, 0px); }

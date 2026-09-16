@@ -78,10 +78,20 @@ class AuthServiceCore {
       // 1. If Supabase configured, subscribe to auth state
       if (supabase) {
         supabase.auth.onAuthStateChange((event, session) => {
-          this.currentUser = session?.user || null;
-          setActiveUserId(this.currentUser?.id || 'default_user');
-          this.notifyListeners(event, session?.user || null);
-          done(this.currentUser);
+          if (session?.user) {
+            this.currentUser = session.user;
+            setActiveUserId(this.currentUser.id);
+            this.notifyListeners(event, session.user);
+            done(this.currentUser);
+          } else if (event === 'SIGNED_OUT') {
+            const localStored = typeof window !== 'undefined' && window.localStorage ? window.localStorage.getItem(LOCAL_AUTH_STORAGE_KEY) : null;
+            if (!localStored) {
+              this.currentUser = null;
+              setActiveUserId('default_user');
+              this.notifyListeners('SIGNED_OUT', null);
+              done(null);
+            }
+          }
         });
 
         // Initial session load
@@ -90,11 +100,31 @@ class AuthServiceCore {
             this.currentUser = data.session.user;
             setActiveUserId(this.currentUser.id);
             this.notifyListeners('INITIAL_SESSION', this.currentUser);
+            done(this.currentUser);
+          } else {
+            // Check offline-first local auth session if Supabase has no active session
+            const stored = typeof window !== 'undefined' && window.localStorage ? window.localStorage.getItem(LOCAL_AUTH_STORAGE_KEY) : null;
+            if (stored) {
+              try {
+                this.currentUser = JSON.parse(stored);
+                setActiveUserId(this.currentUser?.id || 'default_user');
+                this.notifyListeners('INITIAL_SESSION', this.currentUser);
+              } catch (e) {
+                console.warn('Error restoring local session', e);
+              }
+            }
+            done(this.currentUser);
           }
-          done(this.currentUser);
         }).catch((err) => {
           console.warn('Supabase getSession error', err);
-          done(null);
+          const stored = typeof window !== 'undefined' && window.localStorage ? window.localStorage.getItem(LOCAL_AUTH_STORAGE_KEY) : null;
+          if (stored) {
+            try {
+              this.currentUser = JSON.parse(stored);
+              setActiveUserId(this.currentUser?.id || 'default_user');
+            } catch (e) {}
+          }
+          done(this.currentUser);
         });
       } else {
         // 2. Local offline fallback session recovery
@@ -163,14 +193,43 @@ class AuthServiceCore {
           }
         });
 
-        if (error) return Result.err(error.message);
+        if (!error && data?.user) {
+          // Always mirror registered user in local offline storage so login can always work offline/unconfirmed
+          const usersJson = typeof window !== 'undefined' && window.localStorage ? window.localStorage.getItem(LOCAL_USERS_DB_KEY) : null;
+          const users = usersJson ? JSON.parse(usersJson) : [];
+          if (!users.some(u => u.email === trimmedEmail)) {
+            const passwordHash = await hashPassword(password);
+            users.push({
+              id: data.user.id,
+              email: trimmedEmail,
+              passwordHash,
+              user_metadata: { name: displayName },
+              created_at: new Date().toISOString()
+            });
+            if (typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(users));
+              window.localStorage.setItem(LOCAL_AUTH_STORAGE_KEY, JSON.stringify(data.user));
+            }
+          }
+          this.currentUser = data.user;
+          if (this.currentUser?.id) setActiveUserId(this.currentUser.id);
+          this.notifyListeners('SIGNED_UP', this.currentUser);
+          return Result.ok(data.user);
+        }
 
-        this.currentUser = data.user;
-        if (this.currentUser?.id) setActiveUserId(this.currentUser.id);
-        this.notifyListeners('SIGNED_UP', this.currentUser);
-        return Result.ok(data.user);
+        const isRateLimitOrNetwork = error && (
+          error.status === 429 ||
+          error.message?.toLowerCase().includes('rate limit') ||
+          error.message?.toLowerCase().includes('fetch') ||
+          error.message?.toLowerCase().includes('network')
+        );
+
+        if (!isRateLimitOrNetwork) {
+          return Result.err(error?.message || 'Error signing up with Supabase');
+        }
+        console.warn('Supabase signUp rate-limited/offline, using offline-first local auth.');
       } catch (err) {
-        return Result.err(err.message || 'Error signing up with Supabase');
+        console.warn('Supabase signUp exception, using offline-first local auth.', err);
       }
     }
 
@@ -228,14 +287,30 @@ class AuthServiceCore {
           password
         });
 
-        if (error) return Result.err(error.message);
+        if (!error && data?.user) {
+          this.currentUser = data.user;
+          if (this.currentUser?.id) setActiveUserId(this.currentUser.id);
+          this.notifyListeners('SIGNED_IN', this.currentUser);
+          return Result.ok(data.user);
+        }
 
-        this.currentUser = data.user;
-        if (this.currentUser?.id) setActiveUserId(this.currentUser.id);
-        this.notifyListeners('SIGNED_IN', this.currentUser);
-        return Result.ok(data.user);
+        const isRateLimitOrNetwork = error && (
+          error.status === 429 ||
+          error.message?.toLowerCase().includes('rate limit') ||
+          error.message?.toLowerCase().includes('fetch') ||
+          error.message?.toLowerCase().includes('network')
+        );
+
+        const usersJson = typeof window !== 'undefined' && window.localStorage ? window.localStorage.getItem(LOCAL_USERS_DB_KEY) : null;
+        const users = usersJson ? JSON.parse(usersJson) : [];
+        const localUser = users.find(u => u.email === trimmedEmail);
+
+        if (!isRateLimitOrNetwork && !localUser) {
+          return Result.err(error?.message || 'Error signing in with Supabase');
+        }
+        console.warn('Supabase signIn notice, checking local user authentication.');
       } catch (err) {
-        return Result.err(err.message || 'Error signing in with Supabase');
+        console.warn('Supabase signIn exception, checking local fallback.', err);
       }
     }
 

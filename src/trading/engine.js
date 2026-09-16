@@ -22,10 +22,14 @@ export class TradingEngine {
     riskPerTradePct,
     dailyLossLimitPercent = 5.0,
     dailyLossLimit,
+    dailyLossLimitUsd,
     maximumDrawdownPercent = 10.0,
     maxDrawdown,
+    maxTrailingDrawdown,
+    maxTrailingDrawdownUsd,
     profitTargetPercent = 10.0,
     profitTarget,
+    profitTargetUsd,
     challengeDeadline = '',
     deadline,
     minimumTradingDays = 5,
@@ -49,8 +53,9 @@ export class TradingEngine {
     // Daily loss limit: could be passed as dollar amount or percent
     let dailyLossPct = 5.0;
     let dailyLossAmount = parseFloat((size * 0.05).toFixed(2));
-    if (dailyLossLimit !== undefined) {
-      const val = parseFloat(dailyLossLimit);
+    const rawDailyLoss = dailyLossLimitUsd !== undefined ? dailyLossLimitUsd : dailyLossLimit;
+    if (rawDailyLoss !== undefined) {
+      const val = parseFloat(rawDailyLoss);
       if (val > 100 || val > size * 0.5) {
         dailyLossAmount = val;
         dailyLossPct = parseFloat(((val / size) * 100).toFixed(2));
@@ -66,8 +71,9 @@ export class TradingEngine {
     // Maximum drawdown: could be passed as dollar amount or percent
     let maxDdPct = 10.0;
     let maxDdAmount = parseFloat((size * 0.10).toFixed(2));
-    if (maxDrawdown !== undefined) {
-      const val = parseFloat(maxDrawdown);
+    const rawMaxDd = maxTrailingDrawdownUsd !== undefined ? maxTrailingDrawdownUsd : (maxTrailingDrawdown !== undefined ? maxTrailingDrawdown : maxDrawdown);
+    if (rawMaxDd !== undefined) {
+      const val = parseFloat(rawMaxDd);
       if (val > 100 || val > size * 0.5) {
         maxDdAmount = val;
         maxDdPct = parseFloat(((val / size) * 100).toFixed(2));
@@ -83,8 +89,9 @@ export class TradingEngine {
     // Profit target: could be passed as dollar amount or percent
     let profitTargetPct = 10.0;
     let profitTargetAmount = parseFloat((size * 0.10).toFixed(2));
-    if (profitTarget !== undefined) {
-      const val = parseFloat(profitTarget);
+    const rawProfitTarget = profitTargetUsd !== undefined ? profitTargetUsd : profitTarget;
+    if (rawProfitTarget !== undefined) {
+      const val = parseFloat(rawProfitTarget);
       if (val > 100 || val > size * 0.5) {
         profitTargetAmount = val;
         profitTargetPct = parseFloat(((val / size) * 100).toFixed(2));
@@ -145,6 +152,59 @@ export class TradingEngine {
     const id = await db.tradingAccounts.add(account);
     await queueSyncMutation('tradingAccounts', id, 'create', { id, ...account });
     return Result.ok({ id, ...account });
+  }
+
+  /**
+   * Update existing trading account
+   */
+  static async updateAccount(accountId, updates) {
+    const aid = parseInt(accountId, 10);
+    const updated = { ...updates, updatedAt: new Date().toISOString() };
+    await db.tradingAccounts.update(aid, updated);
+    await queueSyncMutation('tradingAccounts', aid, 'update', updated);
+    return Result.ok(await db.tradingAccounts.get(aid));
+  }
+
+  /**
+   * Delete trading account and associated trades
+   */
+  static async deleteAccount(accountId) {
+    const aid = parseInt(accountId, 10);
+    await db.trades.where('accountId').equals(aid).delete();
+    await db.tradingAccounts.delete(aid);
+    await queueSyncMutation('tradingAccounts', aid, 'delete');
+    return Result.ok(true);
+  }
+
+  /**
+   * Delete trade and reverse its impact on account balance & equity
+   */
+  static async deleteTrade(tradeId) {
+    const tid = parseInt(tradeId, 10);
+    const trade = await db.trades.get(tid);
+    if (!trade) {
+      return Result.err('Trade not found');
+    }
+
+    const account = await db.tradingAccounts.get(trade.accountId);
+    if (account) {
+      const tradePnl = typeof trade.pnl === 'number' ? trade.pnl : 0;
+      const reversedBalance = parseFloat((account.currentBalance - tradePnl).toFixed(2));
+      const reversedEquity = parseFloat((account.currentEquity - tradePnl).toFixed(2));
+      await db.tradingAccounts.update(account.id, {
+        currentBalance: reversedBalance,
+        currentEquity: reversedEquity,
+        updatedAt: new Date().toISOString()
+      });
+      await queueSyncMutation('tradingAccounts', account.id, 'update', {
+        currentBalance: reversedBalance,
+        currentEquity: reversedEquity
+      });
+    }
+
+    await db.trades.delete(tid);
+    await queueSyncMutation('trades', tid, 'delete');
+    return Result.ok(true);
   }
 
   /**
@@ -210,6 +270,8 @@ export class TradingEngine {
     takeProfit,
     lotSize,
     positionSize = 1.0,
+    pnl: explicitPnl,
+    rMultiple,
     setupType = 'Breakout',
     timeframe = '15m',
     reason = '',
@@ -229,14 +291,14 @@ export class TradingEngine {
     }
 
     // Pre-execution risk validation
-    const entry = parseFloat(entryPrice);
-    const exit = parseFloat(exitPrice);
+    const entry = isNaN(parseFloat(entryPrice)) ? (explicitPnl !== undefined ? 100 : NaN) : parseFloat(entryPrice);
+    const exit = isNaN(parseFloat(exitPrice)) ? (explicitPnl !== undefined ? 100 : NaN) : parseFloat(exitPrice);
     const sl = parseFloat(stopLoss);
     const tp = parseFloat(takeProfit);
-    const size = parseFloat(lotSize !== undefined ? lotSize : positionSize);
+    const size = parseFloat(lotSize !== undefined ? lotSize : (positionSize !== undefined ? positionSize : 1.0));
 
     if (!instrument || !instrument.trim()) return Result.err('Instrument is required (e.g. XAUUSD)');
-    if (isNaN(entry) || isNaN(exit) || isNaN(size) || size <= 0) {
+    if ((isNaN(entry) || isNaN(exit)) && explicitPnl === undefined) {
       return Result.err('Invalid trade prices or position size');
     }
 
@@ -262,14 +324,17 @@ export class TradingEngine {
 
     // Calculate P/L
     const priceDiff = (direction === 'BUY') ? (exit - entry) : (entry - exit);
-    const pnl = parseFloat((priceDiff * size * multiplier).toFixed(2));
+    const calcPnl = parseFloat((priceDiff * size * multiplier).toFixed(2));
+    const pnl = (explicitPnl !== undefined && !isNaN(parseFloat(explicitPnl))) ? parseFloat(explicitPnl) : calcPnl;
     const pnlPercent = parseFloat(((pnl / account.currentBalance) * 100).toFixed(2));
     const result = pnl > 0 ? 'WIN' : (pnl < 0 ? 'LOSS' : 'BE');
 
     // Potential profit
     const potentialDiff = Math.abs(entry - (isNaN(tp) ? entry : tp));
     const potentialProfit = parseFloat((potentialDiff * size * multiplier).toFixed(2));
-    const riskReward = riskAmount > 0 ? parseFloat((potentialProfit / riskAmount).toFixed(2)) : 0;
+    const riskReward = (rMultiple !== undefined)
+      ? parseFloat(rMultiple)
+      : (riskAmount > 0 ? parseFloat((potentialProfit / riskAmount).toFixed(2)) : 0);
 
     // Update Account Balance & Equity
     const newBalance = parseFloat((account.currentBalance + pnl).toFixed(2));
@@ -297,6 +362,8 @@ export class TradingEngine {
     const totalProfitPercent = parseFloat(((totalProfit / startingBalance) * 100).toFixed(2));
 
     const maxDdAmount = account.maximumDrawdownAmount || account.maxDrawdown || (startingBalance * 0.10);
+    const dailyLimit = account.dailyLossLimitAmount || account.dailyLossLimit;
+    const isDailyLossBreached = dailyLimit && Math.abs(Math.min(0, dailyPL)) >= dailyLimit;
 
     // Blown & Challenge Pass Evaluation
     let newStatus = account.status;
@@ -309,8 +376,8 @@ export class TradingEngine {
     let blownDate = null;
     let blownTime = null;
 
-    // Check Drawdown Breach
-    if (currentDrawdown >= maxDdAmount) {
+    // Check Drawdown or Daily Loss Breach
+    if (currentDrawdown >= maxDdAmount || isDailyLossBreached) {
       newStatus = 'BLOWN';
       blownAt = nowIso;
       failedAt = nowIso;
@@ -318,7 +385,9 @@ export class TradingEngine {
       blownTime = timeStr;
       finalBalance = newBalance;
       totalLoss = parseFloat(Math.abs(startingBalance - newBalance).toFixed(2));
-      reasonMessage = `Max Drawdown Breached: -$${currentDrawdown.toLocaleString()} reached threshold of -$${maxDdAmount.toLocaleString()} (${currentDrawdownPercent}%).`;
+      reasonMessage = (currentDrawdown >= maxDdAmount)
+        ? `Max Drawdown Breached: -$${currentDrawdown.toLocaleString()} reached threshold of -$${maxDdAmount.toLocaleString()} (${currentDrawdownPercent}%).`
+        : `Daily Loss Limit Breached: -$${Math.abs(dailyPL).toLocaleString()} reached threshold of -$${dailyLimit.toLocaleString()}.`;
     }
 
     // Check Challenge Target Achievement
@@ -490,7 +559,9 @@ export class TradingEngine {
       account,
       totalTrades,
       wins: wins.length,
+      totalWins: wins.length,
       losses: losses.length,
+      totalLosses: losses.length,
       winRate,
       profitFactor,
       totalPL,

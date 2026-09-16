@@ -8,6 +8,7 @@ dist/
 dist-ssr/
 build/
 .next/
+scratch/
 
 # Environment Variables (CRITICAL FOR PRODUCTION SECURITY)
 .env
