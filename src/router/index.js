@@ -640,43 +640,31 @@ export class AppRouter {
     const header = this.appContainer.querySelector('header');
     if (!header) return;
 
-    // 1. Ensure header is sticky within the page so it remains accessible while scrolling
-    header.classList.add('sticky', 'top-0', 'z-40');
+    // Ensure header is sticky within the page so it remains accessible while scrolling
+    header.classList.add('sticky', 'top-0', 'z-20');
 
-    // 2. Check if an existing back button or back link exists inside the header
-    const existingBtn = header.querySelector(
-      '.page-back-btn, button[aria-label="Back"], button[aria-label="back"], button[aria-label="Go Back"], button[aria-label="Go back"], a[aria-label="Back"], a[aria-label="back"], a[aria-label="Go Back"], a[aria-label="Go back"]'
-    );
-
-    if (existingBtn) {
-      existingBtn.className = 'page-back-btn w-10 h-10 -ml-1 mr-2 rounded-full bg-surface-container-lowest/90 hover:bg-surface-container border border-outline-variant/30 shadow-xs flex items-center justify-center text-on-surface transition-all active:scale-95 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer';
-      existingBtn.setAttribute('aria-label', 'Go back');
-      if (!existingBtn.innerHTML.includes('arrow_back') && !existingBtn.innerHTML.includes('chevron_left')) {
-        existingBtn.innerHTML = '<span class="material-symbols-outlined text-[20px] leading-none select-none">arrow_back</span>';
-      }
-      existingBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.handleBackNavigation(route);
-      };
-      return;
+    // Remove any existing back button that was inserted by a previous route render
+    // (prevents duplicates when navigating to a screen that already has a back button in its HTML)
+    const existingBack = header.querySelector('button[aria-label="Go back"]');
+    if (existingBack) {
+      existingBack.remove();
     }
 
-    // 3. If no back button exists in header, create and insert it at the top-left
-    const leftContainer = header.querySelector('.flex.items-center.justify-between > .flex.items-center, .flex.items-center') || header.firstElementChild;
-    if (leftContainer) {
-      const backBtn = document.createElement('button');
-      backBtn.type = 'button';
-      backBtn.className = 'page-back-btn w-10 h-10 -ml-1 mr-2 rounded-full bg-surface-container-lowest/90 hover:bg-surface-container border border-outline-variant/30 shadow-xs flex items-center justify-center text-on-surface transition-all active:scale-95 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer';
-      backBtn.setAttribute('aria-label', 'Go back');
-      backBtn.innerHTML = '<span class="material-symbols-outlined text-[20px] leading-none select-none">arrow_back</span>';
-      backBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.handleBackNavigation(route);
-      };
-      leftContainer.insertBefore(backBtn, leftContainer.firstChild);
-    }
+    // Determine the back button: create a new one with router-managed navigation
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'page-back-btn rounded-full bg-surface-container-lowest/90 hover:bg-surface-container border border-outline-variant/30 shadow-xs items-center justify-center text-on-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer';
+    backBtn.setAttribute('aria-label', 'Go back');
+    backBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] leading-none select-none">arrow_back</span>';
+    backBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.handleBackNavigation(route);
+    };
+
+    // Insert as the first element of the header so it's visually at the top-left
+    // and remains sticky/accessible while scrolling
+    header.prepend(backBtn);
   }
 
   async handleRoute() {
@@ -1396,12 +1384,19 @@ export class AppRouter {
 
     // 1. Dynamic Greeting
     const user = AuthService.getCurrentUser();
-    const fullName = user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'there');
+    const profile = await UserService.getProfile();
+    const fullName = profile?.name || user?.user_metadata?.full_name || (user?.email ? user.email.split('@')[0] : 'there');
     const greetingEl = this.appContainer.querySelector('h1');
     if (greetingEl) {
       const hour = new Date().getHours();
       const timeOfDay = hour < 12 ? 'Good morning' : (hour < 17 ? 'Good afternoon' : 'Good evening');
       greetingEl.innerText = `${timeOfDay}, ${fullName}`;
+    }
+
+    // 1b. Profile Photo in Greeting Area - show user photo if set, otherwise keep default
+    const homeAvatar = this.appContainer.querySelector('div.w-11.h-11.rounded-full.overflow-hidden.bg-primary-container.p-05.shadow-sm.active\:scale-95.transition-transform img');
+    if (profile?.avatarUrl && homeAvatar) {
+      homeAvatar.src = profile.avatarUrl;
     }
 
     // 2. Update Hero Card with Real Streak & Real Percentage
@@ -4975,6 +4970,25 @@ export class AppRouter {
       avatarInitial.innerText = initials;
     }
 
+    // Profile photo display - show user photo if set, otherwise fall back to initials
+    const avatarContainer = this.appContainer.querySelector('.relative.w-14.h-14.rounded-full.bg-primary-container.flex.items-center.justify-center.text-on-primary-container');
+    if (avatarContainer && profile?.avatarUrl) {
+      // Remove initials and show profile photo
+      const existingSpan = avatarContainer.querySelector('span.font-headline-sm');
+      if (existingSpan) existingSpan.remove();
+      const photoImg = document.createElement('img');
+      photoImg.src = profile.avatarUrl;
+      photoImg.alt = 'Profile photo';
+      photoImg.className = 'absolute inset-0 w-full h-full object-cover rounded-full';
+      // Insert img tag inside the avatar container, after any existing content
+      const avatarInner = avatarContainer.querySelector('span') || avatarContainer.firstElementChild;
+      if (avatarInner) {
+        avatarContainer.insertBefore(photoImg, avatarInner);
+      } else {
+        avatarContainer.appendChild(photoImg);
+      }
+    }
+
     const streakText = Array.from(this.appContainer.querySelectorAll('.font-body-sm')).find(s => s.innerText.includes('Streak:'));
     if (streakText) {
       streakText.innerText = `Streak: ${bestStreak} Days Alive`;
@@ -5695,6 +5709,8 @@ export class AppRouter {
 
         const uid = getActiveUserId();
         await cleanResetUserData(uid);
+        // Re-seed the 16 default habit definitions so they persist after reset
+        await HabitService.getAll(false, true);
         await seedInitialData();
         this.showToast('Database reset to clean state!');
         setTimeout(() => this.navigate('home'), 500);
