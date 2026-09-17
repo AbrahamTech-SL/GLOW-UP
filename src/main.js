@@ -30,11 +30,11 @@ async function initApp() {
     // Use a localStorage flag so this runs exactly once ever, not on every restart.
     const migrationKey = 'glow_up_goals_migration_v1';
     const migrationDone = window.localStorage.getItem(migrationKey);
+    let curUser = AuthService.getCurrentUser();
+    const cleanupUid = curUser?.id || 'default_user';
     if (!migrationDone) {
       // First run only: remove any existing goals/goal-milestones so the app starts clean.
       // After this first run the flag is set and subsequent starts preserve user-created goals.
-      const curUser = AuthService.getCurrentUser();
-      const cleanupUid = curUser?.id || 'default_user';
       await db.goals.filter(item => matchesActiveUser(item, cleanupUid)).delete();
       await db.goalMilestones.filter(item => matchesActiveUser(item, cleanupUid)).delete();
       window.localStorage.setItem(migrationKey, '1');
